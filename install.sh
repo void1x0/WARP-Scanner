@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# نسخه: V = 71
-# پیش‌نیاز: Python 3 و بسته‌های requests, rich, retrying, icmplib, alive_progress, cryptography
-# همچنین در Termux باید wget, curl و termux-setup-storage موجود باشد.
+"""
+این اسکریپت WARP-Scanner به‌روز شده است.
+لطفاً آن را به عنوان یک فایل پایتون (مثلاً install.py) ذخیره کرده و با دستور:
+    python3 install.py
+اجرا کنید.
+"""
 
 import urllib.request
 import urllib.parse
@@ -109,20 +111,17 @@ def urlencode(string):
 
 def info():
     console.clear()
-    
     table = Table(show_header=True, title="Info", header_style="bold blue")
     table.add_column("Creator", width=15)
     table.add_column("contact", justify="right")
     table.add_row("arshiacomplus", "1 - Telegram")
     table.add_row("arshiacomplus", "2 - GitHub")
     console.print(table)
-    
     print('\nEnter a Number\n')
     options2 = {"1": "open Telegram Channel", "2": "open GitHub", "0": "Exit"}
     for key, value in options2.items():
         rprint(f" [bold yellow]{key}[/bold yellow]: {value}")
     whats2 = Prompt.ask("Choose an option", choices=list(options2.keys()), default="1")
-    
     if whats2 == '0':
         os.execv(sys.executable, ['python'] + sys.argv)
     elif whats2 == '1':
@@ -214,8 +213,8 @@ def bind_keys():
             return '2606:4700:110:846c:e510:bfa1:ea9f:5247/128', priv_string, reserved, 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo='
         except Exception as e:
             print('Something went wrong with api')
-            exit()
-            
+            sys.exit(1)
+
 def fetch_config_from_api():
     global api, what
     if api == '':
@@ -242,7 +241,7 @@ def fetch_config_from_api():
             from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
         except Exception:
             print('Something went wrong with cryptography')
-            exit()
+            sys.exit(1)
         keys = bind_keys()
         keys = list(keys)
         return {
@@ -589,12 +588,12 @@ def main2():
             all_key3 = free_cloudflare_account()
         except Exception as E:
             print('Try again Error =', E)
-            exit()
+            sys.exit(1)
         try:
             all_key2 = free_cloudflare_account()
         except Exception as E:
             print('Try again Error =', E)
-            exit()
+            sys.exit(1)
         os.system('clear')
         print('Make Wireguard')
         time.sleep(10)
@@ -1046,7 +1045,7 @@ def main2():
     "stats": {{}}
 }}'''
         print(WoW_v2)
-        exit()
+        sys.exit(0)
         
     else:
         os.system('clear')
@@ -1098,9 +1097,9 @@ def main2():
 }}
 '''
         print(hising)
-        exit()
+        sys.exit(0)
     if what == "3":
-        exit()
+        sys.exit(0)
     main2_1()
 
 def main2_1():
@@ -1110,20 +1109,20 @@ def main2_1():
         all_key = free_cloudflare_account()
     except Exception as E:
         print('Try again Error =', E)
-        exit()
+        sys.exit(1)
     if what == '7':
         if isIran == '2':
             try:
                 all_key2 = free_cloudflare_account()
             except Exception as E:
                 print('Try again Error =', E)
-                exit()
+                sys.exit(1)
     else:
         try:
             all_key2 = free_cloudflare_account()
         except Exception as E:
             print('Try again Error =', E)
-            exit()
+            sys.exit(1)
     temp_ip = ''
     temp_port = ''
     temp_c = 0
@@ -1150,7 +1149,7 @@ def main3(i, how_many):
              print("\033[91m")
              print('Try again and choose wireguard without IP scanning')
              print('\033[0m')
-             exit()
+             sys.exit(1)
     os.system('clear')
     if wire_p == 1:
         print(f"please wait, making wireguard config: {wire_c-1}.")
@@ -1344,7 +1343,7 @@ if __name__ == "__main__":
                                 ff.write(j[:j.index('|')-1])
                                 ff.write('\n')
                 print(' saved in /storage/emulated/0/clean_result.csv !')
-                exit()
+                sys.exit(0)
         main()
     elif what in ['2', '3', '7', '13', '15', '16']:
         if what in ['7', '13']:
@@ -1380,7 +1379,7 @@ if __name__ == "__main__":
             config = fetch_config_from_api()
         except Exception as E:
             print('Try again Error =', E)
-            exit()
+            sys.exit(1)
         wireguard_url = generate_wireguard_url(config, endpoint_ip)
         if wireguard_url:
             os.system('clear')
@@ -1399,7 +1398,7 @@ if __name__ == "__main__":
                 os.system('rm /data/data/com.termux/files/usr/etc/bash.bashrc')
                 os.rename('/data/data/com.termux/files/usr/etc/bash.bashrc.bak', '/data/data/com.termux/files/usr/etc/bash.bashrc')
                 console.print("[bold red]Shortcut Deleted, successful[/bold red]", style="red")
-            exit()
+            sys.exit(0)
         while True:
             name = input("\nEnter a shortcut name : ")
             if not name.isdigit():
@@ -1412,7 +1411,7 @@ if __name__ == "__main__":
                 f.write(txt)
         text = f'''
 {name}() {{
-bash <(curl -fsSL https://raw.githubusercontent.com/arshiacomplus/WarpScanner/main/install.sh)
+python3 <(curl -fsSL https://raw.githubusercontent.com/arshiacomplus/WarpScanner/main/install.py)
 }}
 '''
         with open('/data/data/com.termux/files/usr/etc/bash.bashrc', 'r+') as f:
@@ -1427,7 +1426,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/arshiacomplus/WarpScanner/ma
             all_key = free_cloudflare_account()
         except Exception as E:
             print('Try again Error =', E)
-            exit()
+            sys.exit(1)
         name_conf = input('\nEnter a name (default: press Enter): ')
         os.system('termux-setup-storage')
         if name_conf == '':
@@ -1451,4 +1450,4 @@ Endpoint = {endpoint_ip}''')
         gojo_goodbye_animation()
         time.sleep(1)
         console.print("\n[bold magenta]Exiting... Goodbye![/bold magenta]\n")
-        exit()
+        sys.exit(0)
