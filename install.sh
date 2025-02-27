@@ -24,11 +24,10 @@ trap cleanup EXIT INT TERM
 check_update() {
     echo -e "${cyan}Checking for updates...${reset}"
     local latest_version
-    # Replace with your repository URL
-    latest_version=$(curl -s "https://raw.githubusercontent.com/void1x0/WARP-Scanner.git/main/version.txt" 2>/dev/null || echo "$VERSION")
+    latest_version=$(curl -s "https://raw.githubusercontent.com/void1x0/WARP-Scanner/main/version.txt" 2>/dev/null || echo "$VERSION")
     
     if [[ "$latest_version" != "$VERSION" && "$latest_version" != "" ]]; then
-        echo -e "${yellow}Visit https://github.com/void1x0/WARP-Scanner.git for updates.${reset}"
+        echo -e "${yellow}Visit https://github.com/void1x0/WARP-Scanner for updates.${reset}"
     else
         echo -e "${green}You are using the latest version ($VERSION).${reset}"
     fi
@@ -39,7 +38,7 @@ download_warpendpoint() {
     if [[ ! -f "./warpendpoint" ]]; then
         echo -e "${cyan}Downloading warpendpoint...${reset}"
         # Assumes amd64 architecture; modify URL if needed.
-        curl -L -o warpendpoint -# --retry 2 "https://raw.githubusercontent.com/void1x0/WARP-Scanner.git/main/endip/amd64"
+        curl -L -o warpendpoint -# --retry 2 "https://raw.githubusercontent.com/void1x0/WARP-Scanner/main/endip/amd64"
         chmod +x warpendpoint
     fi
 }
@@ -89,37 +88,6 @@ convert_csv_to_txt() {
     fi
 }
 
-# Function to retest the best IPs found in the first scan
-retest_best_ips() {
-    if [[ ! -f "result.txt" ]]; then
-        echo -e "${red}No results found. Run a scan first.${reset}"
-        return 1
-    fi
-    
-    echo -e "${magenta}Retesting the 10 best endpoints for more accurate results...${reset}"
-    # Extract the best 10 IPs from previous scan
-    grep "Endpoint:" result.txt | head -n 11 | awk '{print $2}' > best_ips.txt
-    
-    # Backup original results
-    cp result.txt result_full.txt
-    
-    # Run warpendpoint on the best IPs
-    ulimit -n 102400
-    chmod +x warpendpoint >/dev/null 2>&1
-    if [[ -x "./warpendpoint" ]]; then
-        ./warpendpoint -f best_ips.txt
-        convert_csv_to_txt
-        echo -e "${green}Retesting complete.${reset}"
-        echo -e "${green}Full results saved as result_full.txt${reset}"
-        echo -e "${green}Refined results saved as result.txt${reset}"
-    else
-        echo -e "${red}warpendpoint not found or not executable.${reset}"
-        return 1
-    fi
-    
-    rm -f best_ips.txt
-}
-
 # Run warpendpoint scan and display results.
 # Expects parameter "ipv4" or "ipv6" to know which IP list to use.
 scan_results() {
@@ -153,24 +121,10 @@ scan_results() {
             echo -e "${magenta}******** Best IPv4 ********${reset}"
             echo -e "${cyan}$best_ipv4${reset}"
             echo -e "${cyan}Delay: ${green}[$delay]${reset}"
-            
-            # Ask if user wants to retest the best IPs
-            echo -ne "${cyan}Retest the best 10 endpoints for more accurate results? (y/n): ${reset}"
-            read -r retest_resp
-            if [[ "$retest_resp" =~ ^[Yy]$ ]]; then
-                retest_best_ips
-            fi
         elif [[ "$1" == "ipv6" && -n "$best_ipv6" ]]; then
             echo -e "${magenta}******** Recommended IPv6 ********${reset}"
             echo -e "${cyan}$best_ipv6${reset}"
             echo -e "${cyan}Delay: ${green}[$delay]${reset}"
-            
-            # Ask if user wants to retest the best IPs
-            echo -ne "${cyan}Retest the best 10 endpoints for more accurate results? (y/n): ${reset}"
-            read -r retest_resp
-            if [[ "$retest_resp" =~ ^[Yy]$ ]]; then
-                retest_best_ips
-            fi
         else
             echo -e "${red}No valid IP found.${reset}"
         fi
@@ -209,7 +163,23 @@ generate_wg_config() {
                     ;;
             esac
         else
-            endpoint="engage.cloudflareclient.com:2408"
+            echo -e "${cyan}Select endpoint option:${reset}"
+            echo -e "${yellow}[1] Default (engage.cloudflareclient.com:2408)${reset}"
+            echo -e "${yellow}[2] New Warp (engage.cloudflareclient.com:2409)${reset}"
+            echo -ne "${cyan}Your choice: ${reset}"
+            read -r ep_choice
+            case "$ep_choice" in
+                1)
+                    endpoint="engage.cloudflareclient.com:2408"
+                    ;;
+                2)
+                    endpoint="engage.cloudflareclient.com:2409"
+                    ;;
+                *)
+                    echo -e "${yellow}Invalid choice. Using default endpoint.${reset}"
+                    endpoint="engage.cloudflareclient.com:2408"
+                    ;;
+            esac
         fi
 
         # Generate new WireGuard keys
@@ -262,7 +232,6 @@ echo -e "${blue}Select an option:${reset}"
 echo -e "${yellow}[1] Scan IPv4${reset}"
 echo -e "${yellow}[2] Scan IPv6${reset}"
 echo -e "${yellow}[3] Generate WireGuard Config${reset}"
-echo -e "${yellow}[4] Retest Best IPs${reset}"
 echo -e "${yellow}[0] Exit${reset}"
 echo -ne "${cyan}Your choice: ${reset}"
 read -r choice
@@ -279,10 +248,6 @@ case "$choice" in
         ;;
     3)
         generate_wg_config
-        ;;
-    4)
-        download_warpendpoint
-        retest_best_ips
         ;;
     0)
         echo -e "${green}Exiting...${reset}"
