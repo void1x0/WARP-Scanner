@@ -9,7 +9,7 @@ green='\033[38;5;82m'
 yellow='\033[38;5;208m'
 blue='\033[38;5;27m'
 magenta='\033[38;5;201m'
-cyan='\033[38;5;51m'
+cyan='\033[38;5;117m'
 reset='\033[0m'
 
 # Cleanup function for temp files
@@ -119,12 +119,12 @@ scan_results() {
         echo ""
         if [[ "$1" == "ipv4" && -n "$best_ipv4" ]]; then
             echo -e "${magenta}******** Best IPv4 ********${reset}"
-            echo -e "${cyan}$best_ipv4${reset}"
-            echo -e "${cyan}Delay: ${green}[$delay]${reset}"
+            echo -e "${blue}$best_ipv4${reset}"
+            echo -e "${blue}Delay: ${green}[$delay]${reset}"
         elif [[ "$1" == "ipv6" && -n "$best_ipv6" ]]; then
             echo -e "${magenta}******** Recommended IPv6 ********${reset}"
-            echo -e "${cyan}$best_ipv6${reset}"
-            echo -e "${cyan}Delay: ${green}[$delay]${reset}"
+            echo -e "${blue}$best_ipv6${reset}"
+            echo -e "${blue}Delay: ${green}[$delay]${reset}"
         else
             echo -e "${red}No valid IP found.${reset}"
         fi
@@ -191,13 +191,12 @@ generate_wg_config() {
             exit 1
         fi
 
-        # Default WireGuard client addresses (modify if needed)
+        # Default WireGuard client addresses per sample config
         wg_ipv4="172.16.0.2/32"
-        wg_ipv6="2606:4700:110::1/128"
+        wg_ipv6="2606:4700:110:848e:fec7:926a:f8d:1ca/128"
 
-        # Create the WireGuard configuration file
-        config_file="wg-config.conf"
-        cat > "$config_file" <<EOF
+        config_path="/storage/emulated/0/wg-config.conf"
+        cat > "$config_path" <<EOF
 [Interface]
 PrivateKey = $private_key
 Address = $wg_ipv4, $wg_ipv6
@@ -210,7 +209,7 @@ AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = $endpoint
 EOF
 
-        echo -e "${green}WireGuard configuration generated and saved to $config_file${reset}"
+        echo -e "${green}WireGuard configuration generated and saved to $config_path${reset}"
         echo -e "${magenta}Configuration Details:${reset}"
         echo -e "${cyan}Private Key: ${green}$private_key${reset}"
         echo -e "${cyan}Public Key: ${green}$public_key${reset}"
