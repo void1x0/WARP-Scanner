@@ -16,7 +16,7 @@ reset='\033[0m'
 cleanup() {
     echo -e "${blue}Cleaning up temporary files...${reset}"
     rm -f ip.txt temp_* best_ips.txt
-    # Keep result.csv and wg-config.conf for user reference
+    # Keep result.txt and wg-config.conf for user reference
 }
 trap cleanup EXIT INT TERM
 
@@ -24,12 +24,11 @@ trap cleanup EXIT INT TERM
 check_update() {
     echo -e "${cyan}Checking for updates...${reset}"
     local latest_version
-    # This is a placeholder. Replace with actual URL to your version file
-    latest_version=$(curl -s "https://raw.githubusercontent.com/Ptechgithub/warp/main/version.txt" 2>/dev/null || echo "$VERSION")
+    # Replace with your repository URL
+    latest_version=$(curl -s "https://raw.githubusercontent.com/void1x0/WARP-Scanner.git/main/version.txt" 2>/dev/null || echo "$VERSION")
     
     if [[ "$latest_version" != "$VERSION" && "$latest_version" != "" ]]; then
-        echo -e "${yellow}A new version ($latest_version) is available. Current version: $VERSION${reset}"
-        echo -e "${yellow}Visit https://github.com/Ptechgithub/warp for updates.${reset}"
+        echo -e "${yellow}Visit https://github.com/void1x0/WARP-Scanner.git for updates.${reset}"
     else
         echo -e "${green}You are using the latest version ($VERSION).${reset}"
     fi
@@ -40,7 +39,7 @@ download_warpendpoint() {
     if [[ ! -f "./warpendpoint" ]]; then
         echo -e "${cyan}Downloading warpendpoint...${reset}"
         # Assumes amd64 architecture; modify URL if needed.
-        curl -L -o warpendpoint -# --retry 2 "https://raw.githubusercontent.com/Ptechgithub/warp/main/endip/amd64"
+        curl -L -o warpendpoint -# --retry 2 "https://raw.githubusercontent.com/void1x0/WARP-Scanner.git/main/endip/amd64"
         chmod +x warpendpoint
     fi
 }
@@ -82,28 +81,37 @@ generate_ipv6() {
     done
 }
 
+# Function to convert CSV to TXT format
+convert_csv_to_txt() {
+    if [[ -f result.csv ]]; then
+        awk -F, '$3!="timeout ms" {print "Endpoint: "$1" | Delay: "$3}' result.csv | sort -t, -nk3 | uniq > result.txt
+        rm -f result.csv
+    fi
+}
+
 # Function to retest the best IPs found in the first scan
 retest_best_ips() {
-    if [[ ! -f "result.csv" ]]; then
+    if [[ ! -f "result.txt" ]]; then
         echo -e "${red}No results found. Run a scan first.${reset}"
         return 1
     fi
     
     echo -e "${magenta}Retesting the 10 best endpoints for more accurate results...${reset}"
     # Extract the best 10 IPs from previous scan
-    head -n 11 result.csv | awk -F, '{print $1}' > best_ips.txt
+    grep "Endpoint:" result.txt | head -n 11 | awk '{print $2}' > best_ips.txt
     
     # Backup original results
-    cp result.csv result_full.csv
+    cp result.txt result_full.txt
     
     # Run warpendpoint on the best IPs
     ulimit -n 102400
     chmod +x warpendpoint >/dev/null 2>&1
     if [[ -x "./warpendpoint" ]]; then
         ./warpendpoint -f best_ips.txt
+        convert_csv_to_txt
         echo -e "${green}Retesting complete.${reset}"
-        echo -e "${green}Full results saved as result_full.csv${reset}"
-        echo -e "${green}Refined results saved as result.csv${reset}"
+        echo -e "${green}Full results saved as result_full.txt${reset}"
+        echo -e "${green}Refined results saved as result.txt${reset}"
     else
         echo -e "${red}warpendpoint not found or not executable.${reset}"
         return 1
@@ -125,20 +133,21 @@ scan_results() {
     chmod +x warpendpoint >/dev/null 2>&1
     if [[ -x "./warpendpoint" ]]; then
         ./warpendpoint
+        convert_csv_to_txt
     else
         echo -e "${red}warpendpoint not found or not executable.${reset}"
         exit 1
     fi
 
     clear
-    if [[ -f result.csv ]]; then
+    if [[ -f result.txt ]]; then
         echo -e "${magenta}Scan Results:${reset}"
-        awk -F, '$3!="timeout ms" {print "Endpoint: "$1" | Packet Loss: "$2" | Delay: "$3}' result.csv | sort -t, -nk2 -nk3 | uniq | head -n 11
-        best_ipv4=$(grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+" result.csv | head -n 1)
-        best_ipv6=$(grep -oE "\[.*\]:[0-9]+" result.csv | head -n 1)
-        delay=$(grep -oE "[0-9]+ ms|timeout" result.csv | head -n 1)
+        cat result.txt | head -n 11
+        best_ipv4=$(grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+" result.txt | head -n 1)
+        best_ipv6=$(grep -oE "\[.*\]:[0-9]+" result.txt | head -n 1)
+        delay=$(grep -oE "[0-9]+ ms|timeout" result.txt | head -n 1)
         echo ""
-        echo -e "${green}Results saved in result.csv${reset}"
+        echo -e "${green}Results saved in result.txt${reset}"
         echo ""
         if [[ "$1" == "ipv4" && -n "$best_ipv4" ]]; then
             echo -e "${magenta}******** Best IPv4 ********${reset}"
@@ -152,7 +161,7 @@ scan_results() {
                 retest_best_ips
             fi
         elif [[ "$1" == "ipv6" && -n "$best_ipv6" ]]; then
-            echo -e "${magenta}******** Best IPv6 ********${reset}"
+            echo -e "${magenta}******** Recommended IPv6 ********${reset}"
             echo -e "${cyan}$best_ipv6${reset}"
             echo -e "${cyan}Delay: ${green}[$delay]${reset}"
             
@@ -166,7 +175,7 @@ scan_results() {
             echo -e "${red}No valid IP found.${reset}"
         fi
     else
-        echo -e "${red}result.csv not found. Scan may have failed.${reset}"
+        echo -e "${red}result.txt not found. Scan may have failed.${reset}"
     fi
 }
 
@@ -186,13 +195,13 @@ generate_wg_config() {
                     download_warpendpoint
                     generate_ipv4
                     scan_results "ipv4"
-                    endpoint=$(grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+" result.csv | head -n 1)
+                    endpoint=$(grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+" result.txt | head -n 1)
                     ;;
                 2)
                     download_warpendpoint
                     generate_ipv6
                     scan_results "ipv6"
-                    endpoint=$(grep -oE "\[.*\]:[0-9]+" result.csv | head -n 1)
+                    endpoint=$(grep -oE "\[.*\]:[0-9]+" result.txt | head -n 1)
                     ;;
                 *)
                     echo -e "${yellow}Invalid choice. Using default endpoint.${reset}"
@@ -232,6 +241,14 @@ Endpoint = $endpoint
 EOF
 
         echo -e "${green}WireGuard configuration generated and saved to $config_file${reset}"
+        echo -e "${magenta}Configuration Details:${reset}"
+        echo -e "${cyan}Private Key: ${green}$private_key${reset}"
+        echo -e "${cyan}Public Key: ${green}$public_key${reset}"
+        echo -e "${cyan}IPv4 Address: ${green}$wg_ipv4${reset}"
+        echo -e "${cyan}IPv6 Address: ${green}$wg_ipv6${reset}"
+        echo -e "${cyan}Endpoint: ${green}$endpoint${reset}"
+        echo -e "${cyan}DNS: ${green}1.1.1.1, 1.0.0.1${reset}"
+        echo -e "${cyan}MTU: ${green}1280${reset}"
     else
         echo -e "${yellow}WireGuard configuration generation skipped.${reset}"
     fi
