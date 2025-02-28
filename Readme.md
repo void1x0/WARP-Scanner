@@ -21,12 +21,12 @@ WARP-Scanner یک ابزار سریع و قدرتمند برای اسکن و ب�
 
 1. بروزرسانی بسته‌ها:
 ```bash
-pkg update
+pkg update && pkg upgrade -y
 ```
 
-2. ارتقای بسته‌های موجود:
+2. نصب پکیج های مورد نیاز:
 ```bash
-pkg upgrade -y
+pkg install -y bc dnsutils curl wget coreutils wireguard-tools
 ```
 
 3. دانلود و اجرای اسکریپت نصب:
@@ -64,13 +64,13 @@ To install and run the tool, simply execute the following commands in Termux:
 Update packages:
 
 ```bash
-pkg update
+pkg update && pkg upgrade -y
 ```
 
-Upgrade installed packages:
+Installing the required packages:
 
 ```bash
-pkg upgrade -y
+pkg install -y bc dnsutils curl wget coreutils wireguard-tools
 ```
 
 Download and run the installation script:
@@ -109,13 +109,13 @@ WARP-Scanner 是一款快速且强大的工具，用于扫描和检查服务器�
 更新软件包:
 
 ```bash
-pkg update
+pkg update && pkg upgrade -y
 ```
 
-升级现有软件包:
+安装所需的软件包:
 
 ```bash
-pkg upgrade -y
+pkg install -y bc dnsutils curl wget coreutils wireguard-tools
 ```
 
 下载并执行安装脚本:
