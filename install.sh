@@ -1,205 +1,353 @@
 #!/bin/bash
-# Warp IP Scanner & WireGuard Config Generator
+# --------------------------------------
+#     ACCESS INTERNET WITH WARP
+# --------------------------------------
+#     Developed: 2025
+# --------------------------------------
 
-VERSION="1.0"
+# Global configuration
+APP_VERSION="2.0"
+CONFIG_DIR="$HOME/.config/warp-tool"
+TEMP_DIR="/tmp/warp-tool-$$"
+BIN_PATH="$CONFIG_DIR/scanner"
+RESULT_FILE="$TEMP_DIR/endpoints.txt"
+CONFIG_FILE="$HOME/warp-config.conf"
 
-# Color definitions (using 256-color codes)
-red='\033[38;5;196m'
-green='\033[38;5;82m'
-yellow='\033[38;5;208m'
-blue='\033[38;5;27m'
-magenta='\033[38;5;201m'
-cyan='\033[38;5;117m'
-reset='\033[0m'
+# Text styles
+txt_b="\e[1m"      # Bold
+txt_u="\e[4m"      # Underline
+txt_r="\e[0m"      # Reset
 
-# Cleanup function for temp files
-cleanup() {
-    echo -e "${blue}Cleaning up temporary files...${reset}"
-    rm -f ip.txt temp_* best_ips.txt
-    # Keep result.txt and wg-config.conf for user reference
-}
-trap cleanup EXIT INT TERM
+# Colors palette
+col_1="\e[38;5;51m"    # Cyan
+col_2="\e[38;5;201m"   # Magenta
+col_3="\e[38;5;46m"    # Green
+col_4="\e[38;5;226m"   # Yellow
+col_5="\e[38;5;196m"   # Red
+col_6="\e[38;5;21m"    # Blue
 
-# Check for updates
-check_update() {
-    echo -e "${cyan}Checking for updates...${reset}"
-    local latest_version
-    latest_version=$(curl -s "https://raw.githubusercontent.com/void1x0/WARP-Scanner/main/version.txt" 2>/dev/null || echo "$VERSION")
+# Check all required tools
+check_requirements() {
+    local missing_tools=()
     
-    if [[ "$latest_version" != "$VERSION" && "$latest_version" != "" ]]; then
-        echo -e "${yellow}Visit https://github.com/void1x0/WARP-Scanner for updates.${reset}"
-    else
-        echo -e "${green}You are using the latest version ($VERSION).${reset}"
-    fi
-}
-
-# Download warpendpoint if not available in the current directory
-download_warpendpoint() {
-    if [[ ! -f "./warpendpoint" ]]; then
-        echo -e "${cyan}Downloading warpendpoint...${reset}"
-        # Assumes amd64 architecture; modify URL if needed.
-        curl -L -o warpendpoint -# --retry 2 "https://raw.githubusercontent.com/void1x0/WARP-Scanner/main/endip/amd64"
-        chmod +x warpendpoint
-    fi
-}
-
-# Generate 100 unique IPv4 addresses from extended Warp bases
-generate_ipv4() {
-    local total=100
-    # Extended list of IPv4 bases from Warp
-    local bases=("162.159.192" "162.159.193" "162.159.194" "162.159.195" "188.114.96" "188.114.97" "188.114.98" "188.114.99" "188.114.100" "188.114.101")
-    ipv4_list=()
-    while [ "$(printf "%s\n" "${ipv4_list[@]}" | sort -u | wc -l)" -lt "$total" ]; do
-        idx=$(( RANDOM % ${#bases[@]} ))
-        ip="${bases[$idx]}.$(( RANDOM % 256 ))"
-        if ! printf "%s\n" "${ipv4_list[@]}" | grep -qx "$ip"; then
-            ipv4_list+=("$ip")
-        fi
-    done
-}
-
-# Generate 100 unique IPv6 addresses from extended Warp bases
-generate_ipv6() {
-    local total=100
-    # Extended list of IPv6 bases
-    local bases=("2606:4700:d0::" "2606:4700:d1::" "2606:4700:110::")
-    ipv6_list=()
-    rand_hex() {
-        printf '%x' $(( RANDOM % 65536 ))
-    }
-    while [ "$(printf "%s\n" "${ipv6_list[@]}" | sort -u | wc -l)" -lt "$total" ]; do
-        idx=$(( RANDOM % ${#bases[@]} ))
-        seg1=$(rand_hex)
-        seg2=$(rand_hex)
-        seg3=$(rand_hex)
-        seg4=$(rand_hex)
-        ip="[${bases[$idx]}${seg1}:${seg2}:${seg3}:${seg4}]"
-        if ! printf "%s\n" "${ipv6_list[@]}" | grep -qx "$ip"; then
-            ipv6_list+=("$ip")
-        fi
-    done
-}
-
-# Function to convert CSV to TXT format
-convert_csv_to_txt() {
-    if [[ -f result.csv ]]; then
-        awk -F, '$3!="timeout ms" {print "Endpoint: "$1" | Delay: "$3}' result.csv | sort -t, -nk3 | uniq > result.txt
-        rm -f result.csv
-    fi
-}
-
-# Run warpendpoint scan and display results.
-# Expects parameter "ipv4" or "ipv6" to know which IP list to use.
-scan_results() {
-    if [ "$1" == "ipv4" ]; then
-        printf "%s\n" "${ipv4_list[@]}" | sort -u > ip.txt
-    elif [ "$1" == "ipv6" ]; then
-        printf "%s\n" "${ipv6_list[@]}" | sort -u > ip.txt
-    fi
-
-    ulimit -n 102400
-    chmod +x warpendpoint >/dev/null 2>&1
-    if [[ -x "./warpendpoint" ]]; then
-        ./warpendpoint
-        convert_csv_to_txt
-    else
-        echo -e "${red}warpendpoint not found or not executable.${reset}"
+    command -v curl >/dev/null 2>&1 || missing_tools+=("curl")
+    
+    if [ ${#missing_tools[@]} -gt 0 ]; then
+        print_message "ERROR" "Required tools are missing: ${missing_tools[*]}"
+        print_message "INFO" "Please install the missing tools and try again"
         exit 1
     fi
+}
 
-    clear
-    if [[ -f result.txt ]]; then
-        echo -e "${magenta}Scan Results:${reset}"
-        cat result.txt | head -n 11
-        best_ipv4=$(grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+" result.txt | head -n 1)
-        best_ipv6=$(grep -oE "\[.*\]:[0-9]+" result.txt | head -n 1)
-        delay=$(grep -oE "[0-9]+ ms|timeout" result.txt | head -n 1)
-        echo ""
-        echo -e "${green}Results saved in result.txt${reset}"
-        echo ""
-        if [[ "$1" == "ipv4" && -n "$best_ipv4" ]]; then
-            echo -e "${magenta}******** Best IPv4 ********${reset}"
-            echo -e "${blue}$best_ipv4${reset}"
-            echo -e "${blue}Delay: ${green}[$delay]${reset}"
-        elif [[ "$1" == "ipv6" && -n "$best_ipv6" ]]; then
-            echo -e "${magenta}******** Recommended IPv6 ********${reset}"
-            echo -e "${blue}$best_ipv6${reset}"
-            echo -e "${blue}Delay: ${green}[$delay]${reset}"
-        else
-            echo -e "${red}No valid IP found.${reset}"
-        fi
+# Initialize environment
+init_environment() {
+    # Create directories
+    mkdir -p "$CONFIG_DIR" "$TEMP_DIR"
+    
+    # Check requirements
+    check_requirements
+    
+    # Set resource limits
+    ulimit -n 102400 >/dev/null 2>&1 || true
+}
+
+# Display fancy text
+print_fancy_text() {
+    local text="$1"
+    local width=$((${#text} + 6))
+    local border=$(printf "%${width}s" | tr " " "═")
+    
+    echo -e "${col_2}╔${border}╗"
+    echo -e "║   ${col_1}${txt_b}${text}${txt_r}${col_2}   ║"
+    echo -e "╚${border}╝${txt_r}"
+}
+
+# Display status message
+print_message() {
+    local type="$1"
+    local message="$2"
+    
+    case "$type" in
+        "INFO")     echo -e "${col_1}[${txt_b}i${txt_r}${col_1}] ${message}${txt_r}" ;;
+        "SUCCESS")  echo -e "${col_3}[${txt_b}✓${txt_r}${col_3}] ${message}${txt_r}" ;;
+        "WARNING")  echo -e "${col_4}[${txt_b}!${txt_r}${col_4}] ${message}${txt_r}" ;;
+        "ERROR")    echo -e "${col_5}[${txt_b}✗${txt_r}${col_5}] ${message}${txt_r}" ;;
+        "QUESTION") echo -e "${col_6}[${txt_b}?${txt_r}${col_6}] ${message}${txt_r}" ;;
+        *)          echo -e "${message}" ;;
+    esac
+}
+
+# Show loading animation
+display_progress() {
+    local pid=$1
+    local message="${2:-Processing}"
+    local chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    local delay=0.1
+    
+    while [ -d /proc/$pid ]; do
+        for (( i=0; i<${#chars}; i++ )); do
+            echo -ne "${col_3}[${chars:$i:1}]${txt_r} $message\r"
+            sleep $delay
+        done
+    done
+    echo -ne "                                        \r"
+}
+
+# Obtain scanner tool
+obtain_scanner_tool() {
+    if [[ ! -f "$BIN_PATH" ]]; then
+        print_message "INFO" "Downloading scanner tool..."
+        curl -L -o "$BIN_PATH" --retry 3 --silent "https://raw.githubusercontent.com/void1x0/WARP-Scanner/main/endip/amd64"
+        chmod +x "$BIN_PATH"
+        print_message "SUCCESS" "Scanner tool downloaded"
+    fi
+    
+    # Copy to temp directory for execution
+    cp -f "$BIN_PATH" "$TEMP_DIR/scanner"
+}
+
+# Generate IP pool
+generate_ip_pool() {
+    local mode="$1"
+    local outfile="$TEMP_DIR/ip_pool.txt"
+    
+    print_message "INFO" "Generating $mode address pool..."
+    
+    if [[ "$mode" == "ipv4" ]]; then
+        # IPv4 address ranges for Cloudflare WARP
+        local ipv4_ranges=(
+            "162.159.192" "162.159.193" "162.159.194" "162.159.195" 
+            "188.114.96" "188.114.97" "188.114.98" "188.114.99" 
+            "188.114.100" "188.114.101"
+        )
+        
+        # Generate 100 random IPv4 addresses
+        > "$outfile"
+        for i in {1..100}; do
+            local base=${ipv4_ranges[$RANDOM % ${#ipv4_ranges[@]}]}
+            local last=$((RANDOM % 256))
+            echo "$base.$last" >> "$outfile"
+        done
     else
-        echo -e "${red}result.txt not found. Scan may have failed.${reset}"
+        # IPv6 address ranges for Cloudflare WARP
+        local ipv6_ranges=(
+            "2606:4700:d0::" "2606:4700:d1::" "2606:4700:110::"
+        )
+        
+        # Generate 100 random IPv6 addresses
+        > "$outfile"
+        for i in {1..100}; do
+            local base=${ipv6_ranges[$RANDOM % ${#ipv6_ranges[@]}]}
+            local hex1=$(printf "%04x" $((RANDOM % 65536)))
+            local hex2=$(printf "%04x" $((RANDOM % 65536)))
+            local hex3=$(printf "%04x" $((RANDOM % 65536)))
+            local hex4=$(printf "%04x" $((RANDOM % 65536)))
+            echo "[$base$hex1:$hex2:$hex3:$hex4]" >> "$outfile"
+        done
+    fi
+    
+    print_message "SUCCESS" "Generated $(wc -l < "$outfile") addresses"
+}
+
+# Scan IP addresses
+scan_endpoints() {
+    local mode="$1"
+    local pool_file="$TEMP_DIR/ip_pool.txt"
+    
+    # Ensure we have IP pool
+    if [[ ! -f "$pool_file" ]]; then
+        generate_ip_pool "$mode"
+    fi
+    
+    print_message "INFO" "Starting endpoint scan..."
+    
+    # Run scanner in background
+    cd "$TEMP_DIR"
+    ./scanner > /dev/null 2>&1 &
+    local scanner_pid=$!
+    
+    # Show progress animation
+    display_progress $scanner_pid "Scanning endpoints"
+    
+    # Process results
+    if [[ -f "$TEMP_DIR/result.csv" ]]; then
+        # Convert to readable format and sort by latency
+        awk -F, '$3!="timeout ms" {print $1 " | " $3}' "$TEMP_DIR/result.csv" | 
+            sort -t'|' -k2 -n > "$RESULT_FILE"
+        
+        print_message "SUCCESS" "Scan completed with $(wc -l < "$RESULT_FILE") results"
+    else
+        print_message "ERROR" "Scan failed - no results found"
+        return 1
     fi
 }
 
-# Generate a WireGuard configuration file with new keys.
-# Optionally performs an IP scan to determine the best endpoint.
-generate_wg_config() {
-    echo -ne "${cyan}Generate WireGuard configuration? (y/n): ${reset}"
-    read -r resp
-    if [[ "$resp" =~ ^[Yy]$ ]]; then
-        echo -ne "${cyan}Perform IP scan for endpoint? (y/n): ${reset}"
-        read -r scan_choice
-        if [[ "$scan_choice" =~ ^[Yy]$ ]]; then
-            echo -ne "${cyan}Select IP version for scan: [1] IPv4, [2] IPv6: ${reset}"
-            read -r ip_choice
-            case "$ip_choice" in
-                1)
-                    download_warpendpoint
-                    generate_ipv4
-                    scan_results "ipv4"
-                    endpoint=$(grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+" result.txt | head -n 1)
-                    ;;
-                2)
-                    download_warpendpoint
-                    generate_ipv6
-                    scan_results "ipv6"
-                    endpoint=$(grep -oE "\[.*\]:[0-9]+" result.txt | head -n 1)
-                    ;;
-                *)
-                    echo -e "${yellow}Invalid choice. Using default endpoint.${reset}"
+# Display scan results
+show_scan_results() {
+    local mode="$1"
+    
+    if [[ ! -f "$RESULT_FILE" || ! -s "$RESULT_FILE" ]]; then
+        print_message "ERROR" "No results available"
+        return 1
+    fi
+    
+    print_fancy_text "TOP 5 ENDPOINTS"
+    
+    # Display top 5 results
+    local count=0
+    while IFS= read -r line && [[ $count -lt 5 ]]; do
+        echo -e "${col_4}[$((count+1))]${txt_r} ${col_1}${line}${txt_r}"
+        ((count++))
+    done < "$RESULT_FILE"
+    
+    # Extract best endpoint
+    if [[ "$mode" == "ipv4" ]]; then
+        best_endpoint=$(grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+" "$RESULT_FILE" | head -n1)
+    else
+        best_endpoint=$(grep -oE "\[.*\]:[0-9]+" "$RESULT_FILE" | head -n1)
+    fi
+    
+    if [[ -n "$best_endpoint" ]]; then
+        local latency=$(grep "$best_endpoint" "$RESULT_FILE" | grep -oE "[0-9]+ ms" | head -n1)
+        echo
+        print_fancy_text "BEST ENDPOINT"
+        echo -e "${col_3}${txt_b}$best_endpoint${txt_r}"
+        echo -e "${col_1}Latency: ${col_3}$latency${txt_r}"
+    fi
+}
+
+# Check and install WireGuard tools
+install_wireguard() {
+    if command -v wg &>/dev/null; then
+        print_message "INFO" "WireGuard is already installed"
+        return 0
+    fi
+    
+    print_message "WARNING" "WireGuard tools not installed. Attempting to install..."
+    
+    # Detect operating system
+    if [ -f /etc/debian_version ]; then
+        # Debian/Ubuntu
+        print_message "INFO" "Detected Debian/Ubuntu system"
+        print_message "INFO" "Running: sudo apt update && sudo apt install -y wireguard-tools"
+        sudo apt update && sudo apt install -y wireguard-tools
+    elif [ -f /etc/fedora-release ]; then
+        # Fedora
+        print_message "INFO" "Detected Fedora system"
+        print_message "INFO" "Running: sudo dnf install -y wireguard-tools"
+        sudo dnf install -y wireguard-tools
+    elif [ -f /etc/arch-release ]; then
+        # Arch Linux
+        print_message "INFO" "Detected Arch Linux system"
+        print_message "INFO" "Running: sudo pacman -S --noconfirm wireguard-tools"
+        sudo pacman -S --noconfirm wireguard-tools
+    else
+        print_message "ERROR" "Could not detect package manager. Please install WireGuard tools manually."
+        print_message "INFO" "Installation commands for different systems:"
+        echo -e "${col_1}Debian/Ubuntu:${txt_r} sudo apt update && sudo apt install -y wireguard-tools"
+        echo -e "${col_1}Fedora:${txt_r} sudo dnf install -y wireguard-tools"
+        echo -e "${col_1}Arch Linux:${txt_r} sudo pacman -S wireguard-tools"
+        echo -e "${col_1}macOS:${txt_r} brew install wireguard-tools"
+        return 1
+    fi
+    
+    # Check if installation was successful
+    if command -v wg &>/dev/null; then
+        print_message "SUCCESS" "WireGuard tools installed successfully"
+        return 0
+    else
+        print_message "ERROR" "Failed to install WireGuard tools"
+        return 1
+    fi
+}
+
+# Generate encryption keys with specific format
+generate_keys() {
+    if ! command -v wg &>/dev/null; then
+        print_message "WARNING" "WireGuard tools not installed"
+        install_wireguard || return 1
+    fi
+    
+    print_message "INFO" "Generating encryption keys..."
+    
+    # Generate the raw keys
+    local raw_private=$(wg genkey)
+    local raw_public=$(echo "$raw_private" | wg pubkey)
+    
+    # Format the private key according to the template (2IhVcDH9iXXXXXXXXXXXXXXXXXX)
+    local private_prefix=${raw_private:0:8}
+    local private_formatted="${private_prefix}XXXXXXXXXXXXXXXXXXXXXXX"
+    
+    # Format the public key according to the template (bmXOC+XXXXXXXXXXXXXXXXXXXXXX)
+    local public_prefix=${raw_public:0:6}
+    local public_formatted="${public_prefix}XXXXXXXXXXXXXXXXXXXXXX"
+    
+    echo "$private_formatted:$public_formatted"
+}
+
+# Create WireGuard configuration
+create_wireguard_config() {
+    local endpoint="$1"
+    
+    if [[ -z "$endpoint" ]]; then
+        # Ask user for endpoint choice
+        print_message "QUESTION" "Select endpoint source:"
+        echo -e "${col_4}[1]${txt_r} Scan for fastest endpoint"
+        echo -e "${col_4}[2]${txt_r} Use default endpoint"
+        read -p "Choice: " choice
+        
+        case "$choice" in
+            1)
+                print_message "QUESTION" "Select IP version:"
+                echo -e "${col_4}[1]${txt_r} IPv4"
+                echo -e "${col_4}[2]${txt_r} IPv6"
+                read -p "Choice: " ip_ver
+                
+                if [[ "$ip_ver" == "1" ]]; then
+                    scan_endpoints "ipv4"
+                    endpoint=$(grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+" "$RESULT_FILE" | head -n1)
+                elif [[ "$ip_ver" == "2" ]]; then
+                    scan_endpoints "ipv6"
+                    endpoint=$(grep -oE "\[.*\]:[0-9]+" "$RESULT_FILE" | head -n1)
+                else
+                    print_message "WARNING" "Invalid choice, using default"
                     endpoint="engage.cloudflareclient.com:2408"
-                    ;;
-            esac
-        else
-            echo -e "${cyan}Select endpoint option:${reset}"
-            echo -e "${yellow}[1] Default (engage.cloudflareclient.com:2408)${reset}"
-            echo -e "${yellow}[2] New Warp (engage.cloudflareclient.com:2409)${reset}"
-            echo -ne "${cyan}Your choice: ${reset}"
-            read -r ep_choice
-            case "$ep_choice" in
-                1)
+                fi
+                ;;
+            2)
+                print_message "QUESTION" "Select default endpoint:"
+                echo -e "${col_4}[1]${txt_r} engage.cloudflareclient.com:2408"
+                echo -e "${col_4}[2]${txt_r} engage.cloudflareclient.com:2409"
+                read -p "Choice: " def_ep
+                
+                if [[ "$def_ep" == "1" ]]; then
                     endpoint="engage.cloudflareclient.com:2408"
-                    ;;
-                2)
+                elif [[ "$def_ep" == "2" ]]; then
                     endpoint="engage.cloudflareclient.com:2409"
-                    ;;
-                *)
-                    echo -e "${yellow}Invalid choice. Using default endpoint.${reset}"
+                else
+                    print_message "WARNING" "Invalid choice, using default"
                     endpoint="engage.cloudflareclient.com:2408"
-                    ;;
-            esac
-        fi
-
-        # Generate new WireGuard keys
-        if command -v wg &>/dev/null; then
-            private_key=$(wg genkey)
-            public_key=$(echo "$private_key" | wg pubkey)
-        else
-            echo -e "${red}wireguard-tools not installed. Please install wg.${reset}"
-            exit 1
-        fi
-
-        # Default WireGuard client addresses per sample config
-        wg_ipv4="172.16.0.2/32"
-        wg_ipv6="2606:4700:110:848e:fec7:926a:f8d:1ca/128"
-
-        config_path="/storage/emulated/0/wg-config.conf"
-        cat > "$config_path" <<EOF
+                fi
+                ;;
+            *)
+                print_message "WARNING" "Invalid choice, using default"
+                endpoint="engage.cloudflareclient.com:2408"
+                ;;
+        esac
+    fi
+    
+    # Generate keys
+    local key_pair=$(generate_keys)
+    local private_key=${key_pair%%:*}
+    local public_key=${key_pair##*:}
+    
+    print_message "INFO" "Creating WireGuard configuration..."
+    
+    # Create config file
+    cat > "$CONFIG_FILE" <<EOC
 [Interface]
 PrivateKey = $private_key
-Address = $wg_ipv4, $wg_ipv6
+Address = 172.16.0.2/32, 2606:4700:110:848e:fec7:926a:f8d:1ca/128
 DNS = 1.1.1.1, 1.0.0.1, 2606:4700:4700::1111, 2606:4700:4700::1001
 MTU = 1280
 
@@ -207,53 +355,125 @@ MTU = 1280
 PublicKey = $public_key
 AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = $endpoint
-EOF
+EOC
+    
+    print_message "SUCCESS" "Configuration saved to $CONFIG_FILE"
+    
+    # Display summary
+    print_fancy_text "WIREGUARD DETAILS"
+    echo -e "${col_1}Private Key:${txt_r} ${txt_b}$private_key${txt_r}"
+    echo -e "${col_1}Public Key:${txt_r} ${txt_b}$public_key${txt_r}"
+    echo -e "${col_1}Endpoint:${txt_r} ${txt_b}$endpoint${txt_r}"
+}
 
-        echo -e "${green}WireGuard configuration generated and saved to $config_path${reset}"
-        echo -e "${magenta}Configuration Details:${reset}"
-        echo -e "${cyan}Private Key: ${green}$private_key${reset}"
-        echo -e "${cyan}Public Key: ${green}$public_key${reset}"
-        echo -e "${cyan}IPv4 Address: ${green}$wg_ipv4${reset}"
-        echo -e "${cyan}IPv6 Address: ${green}$wg_ipv6${reset}"
-        echo -e "${cyan}Endpoint: ${green}$endpoint${reset}"
-        echo -e "${cyan}DNS: ${green}1.1.1.1, 1.0.0.1${reset}"
-        echo -e "${cyan}MTU: ${green}1280${reset}"
+# Create WHA (Warp Hiddify App) link
+create_wha_link() {
+    print_message "QUESTION" "Select IP version for WHA link:"
+    echo -e "${col_4}[1]${txt_r} IPv4"
+    echo -e "${col_4}[2]${txt_r} IPv6"
+    read -p "Choice: " ip_ver
+    
+    local mode=""
+    if [[ "$ip_ver" == "1" ]]; then
+        mode="ipv4"
+    elif [[ "$ip_ver" == "2" ]]; then
+        mode="ipv6"
     else
-        echo -e "${yellow}WireGuard configuration generation skipped.${reset}"
+        print_message "ERROR" "Invalid choice"
+        return 1
+    fi
+    
+    # Scan endpoints
+    scan_endpoints "$mode"
+    show_scan_results "$mode"
+    
+    # Get best endpoint
+    local endpoint=""
+    if [[ "$mode" == "ipv4" ]]; then
+        endpoint=$(grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+" "$RESULT_FILE" | head -n1)
+    else
+        endpoint=$(grep -oE "\[.*\]:[0-9]+" "$RESULT_FILE" | head -n1)
+    fi
+    
+    if [[ -n "$endpoint" ]]; then
+        local wha_link="warp://$endpoint/?ifp=5-10@void1x0"
+        
+        print_fancy_text "WHA LINK"
+        echo -e "${col_3}${txt_b}$wha_link${txt_r}"
+        echo -e "${col_1}Ready to use with Warp Hiddify App${txt_r}"
+    else
+        print_message "ERROR" "No valid endpoint found for WHA link"
     fi
 }
 
-# Main menu
-clear
-echo -e "${magenta}Warp IP Scanner & WireGuard Config Generator v$VERSION${reset}"
-check_update
-echo -e "${blue}Select an option:${reset}"
-echo -e "${yellow}[1] Scan IPv4${reset}"
-echo -e "${yellow}[2] Scan IPv6${reset}"
-echo -e "${yellow}[3] Generate WireGuard Config${reset}"
-echo -e "${yellow}[0] Exit${reset}"
-echo -ne "${cyan}Your choice: ${reset}"
-read -r choice
-case "$choice" in
-    1)
-        download_warpendpoint
-        generate_ipv4
-        scan_results "ipv4"
-        ;;
-    2)
-        download_warpendpoint
-        generate_ipv6
-        scan_results "ipv6"
-        ;;
-    3)
-        generate_wg_config
-        ;;
-    0)
-        echo -e "${green}Exiting...${reset}"
-        exit 0
-        ;;
-    *)
-        echo -e "${red}Invalid choice.${reset}"
-        exit 1
-        ;;
-esac
+# Clean up temporary files
+cleanup() {
+    print_message "INFO" "Cleaning up..."
+    rm -rf "$TEMP_DIR"
+}
+
+# Display main menu
+show_menu() {
+    clear
+    print_fancy_text "ACCESS INTERNET WITH WARP v$APP_VERSION"
+    echo
+    echo -e "${col_4}[1]${txt_r} Scan IPv4 Endpoints"
+    echo -e "${col_4}[2]${txt_r} Scan IPv6 Endpoints"
+    echo -e "${col_4}[3]${txt_r} Generate WireGuard Config"
+    echo -e "${col_4}[4]${txt_r} Create WHA Link"
+    echo -e "${col_4}[0]${txt_r} Exit"
+    echo
+    echo -ne "${col_6}Select option:${txt_r} "
+}
+
+# Main program
+main() {
+    # Setup environment
+    init_environment
+    obtain_scanner_tool
+    
+    # Register cleanup
+    trap cleanup EXIT
+    
+    # Main program loop
+    while true; do
+        show_menu
+        read choice
+        
+        case "$choice" in
+            1)
+                clear
+                generate_ip_pool "ipv4"
+                scan_endpoints "ipv4"
+                show_scan_results "ipv4"
+                ;;
+            2)
+                clear
+                generate_ip_pool "ipv6"
+                scan_endpoints "ipv6"
+                show_scan_results "ipv6"
+                ;;
+            3)
+                clear
+                create_wireguard_config
+                ;;
+            4)
+                clear
+                create_wha_link
+                ;;
+            0)
+                print_message "SUCCESS" "Thanks for using WARP Tool!"
+                exit 0
+                ;;
+            *)
+                print_message "ERROR" "Invalid option"
+                ;;
+        esac
+        
+        echo
+        read -p "Press Enter to continue..."
+    done
+}
+
+# Start program
+main
