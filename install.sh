@@ -42,28 +42,9 @@ fi
 # Create temporary directory
 mkdir -p "$TEMP_DIR"
 IP_FILE="$TEMP_DIR/ip.txt"
-RESULT_FILE="$TEMP_DIR/result.txt"
-CSV_FILE="$TEMP_DIR/result.csv"
 BEST_IPS_FILE="$TEMP_DIR/best_ips.txt"
 
-# Determine system architecture for downloading the appropriate warpendpoint file
-ARCH=$(uname -m)
-case "$ARCH" in
-    x86_64|amd64)
-        ENDPOINT_ARCH="amd64"
-        ;;
-    aarch64|arm64)
-        ENDPOINT_ARCH="arm64"
-        ;;
-    arm*)
-        ENDPOINT_ARCH="arm"
-        ;;
-    *)
-        ENDPOINT_ARCH="amd64"  # default
-        ;;
-esac
-
-# ----- Functions and Operations -----
+# ----- Functions -----
 
 # Display error message and exit
 error_exit() {
@@ -84,65 +65,6 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Check for updates
-check_update() {
-    show_progress "Checking for updates..."
-    
-    if ! command -v curl &>/dev/null && ! command -v wget &>/dev/null; then
-        echo -e "${yellow}curl or wget not found. Skipping update check.${reset}"
-        return
-    fi
-    
-    local latest_version
-    if command -v curl &>/dev/null; then
-        latest_version=$(curl -s -m 5 "https://raw.githubusercontent.com/void1x0/WARP-Scanner/main/version.txt" 2>/dev/null || echo "$VERSION")
-    else
-        latest_version=$(wget -q -O - -T 5 "https://raw.githubusercontent.com/void1x0/WARP-Scanner/main/version.txt" 2>/dev/null || echo "$VERSION")
-    fi
-    
-    if [[ "$latest_version" != "$VERSION" && "$latest_version" != "" ]]; then
-        echo -e "${yellow}A new version ($latest_version) is available. Please visit https://github.com/void1x0/WARP-Scanner to update.${reset}"
-    else
-        echo -e "${green}You are using the latest version ($VERSION).${reset}"
-    fi
-}
-
-# Download a file using curl or wget
-download_file() {
-    local url="$1"
-    local output="$2"
-    local msg="$3"
-    
-    echo -e "${cyan}Downloading $msg...${reset}"
-    
-    if command -v curl &>/dev/null; then
-        if ! curl -L -o "$output" --retry 3 --retry-delay 2 -m 60 -# "$url"; then
-            error_exit "Download failed. Please check your internet connection."
-        fi
-    elif command -v wget &>/dev/null; then
-        if ! wget -q --show-progress -O "$output" --tries=3 --timeout=60 "$url"; then
-            error_exit "Download failed. Please check your internet connection."
-        fi
-    else
-        error_exit "curl or wget not found. Please install one of them."
-    fi
-}
-
-# Download warpendpoint if not already available in the TEMP_DIR
-download_warpendpoint() {
-    local endpoint_path="$TEMP_DIR/warpendpoint"
-    
-    if [[ ! -f "$endpoint_path" ]]; then
-        download_file "https://raw.githubusercontent.com/void1x0/WARP-Scanner/main/endip/$ENDPOINT_ARCH" "$endpoint_path" "warpendpoint"
-        chmod +x "$endpoint_path"
-        
-        # Verify successful download
-        if [[ ! -x "$endpoint_path" ]]; then
-            error_exit "The warpendpoint file is not executable or is corrupted."
-        fi
-    fi
-}
-
 # Generate 100 unique IPv4 addresses from Warp ranges
 generate_ipv4() {
     show_progress "Generating IPv4 addresses..."
@@ -153,8 +75,6 @@ generate_ipv4() {
     while [ "${#temp_array[@]}" -lt "$total" ]; do
         local idx=$(( RANDOM % ${#bases[@]} ))
         local ip="${bases[$idx]}.$(( RANDOM % 256 ))"
-        
-        # Check for duplicate IPs
         local duplicate=0
         for existing_ip in "${temp_array[@]}"; do
             if [[ "$existing_ip" == "$ip" ]]; then
@@ -162,17 +82,16 @@ generate_ipv4() {
                 break
             fi
         done
-        
         if [[ "$duplicate" -eq 0 ]]; then
             temp_array+=("$ip")
         fi
     done
-    
     printf "%s\n" "${temp_array[@]}" > "$IP_FILE"
     echo -e "${green}$total IPv4 addresses generated.${reset}"
 }
 
-# Generate 100 unique IPv6 addresses from Warp ranges
+# Generate 100 unique IPv6 addresses from the specified Warp bases
+# (Only these bases will be used: "2606:4700:d0::", "2606:4700:d1::", "2606:4700:110::")
 generate_ipv6() {
     show_progress "Generating IPv6 addresses..."
     local total=100
@@ -190,8 +109,6 @@ generate_ipv6() {
         local seg3=$(rand_hex)
         local seg4=$(rand_hex)
         local ip="[${bases[$idx]}${seg1}:${seg2}:${seg3}:${seg4}]"
-        
-        # Check for duplicate IPs
         local duplicate=0
         for existing_ip in "${temp_array[@]}"; do
             if [[ "$existing_ip" == "$ip" ]]; then
@@ -199,164 +116,162 @@ generate_ipv6() {
                 break
             fi
         done
-        
         if [[ "$duplicate" -eq 0 ]]; then
             temp_array+=("$ip")
         fi
     done
-    
     printf "%s\n" "${temp_array[@]}" > "$IP_FILE"
     echo -e "${green}$total IPv6 addresses generated.${reset}"
 }
 
-# Convert CSV results to a plain TXT file
-convert_csv_to_txt() {
-    if [[ -f "$CSV_FILE" ]]; then
-        if command -v awk &>/dev/null; then
-            awk -F, '$3!="timeout ms" {print "Endpoint: "$1" | Delay: "$3}' "$CSV_FILE" | sort -t, -nk3 | uniq > "$RESULT_FILE"
-        else
-            while IFS=',' read -r endpoint _ delay_ms _; do
-                if [[ "$delay_ms" != "timeout ms" ]]; then
-                    echo "Endpoint: $endpoint | Delay: $delay_ms"
-                fi
-            done < "$CSV_FILE" | sort | uniq > "$RESULT_FILE"
-        fi
-        rm -f "$CSV_FILE"
-    fi
-}
+# Test the stability of an IP using ping (returns average delay, jitter, and packet loss)
+test_stability() {
+    local ip="$1"
+    local count=10
+    local results=()
+    local sum=0
+    local jitter=0
+    local packet_loss=0
 
-# Parallel scan of IP addresses to improve speed
-parallel_scan() {
-    local ip_type="$1"
-    local endpoint_path="$TEMP_DIR/warpendpoint"
-    local batch_size=10
-    local total_ips
-    total_ips=$(wc -l < "$IP_FILE")
-    local batches=$((total_ips / batch_size))
-    
-    show_progress "Scanning IP addresses in parallel..."
-    
-    # Set ulimit for non-macOS platforms (macOS has specific limitations)
-    if [[ "$OSTYPE" != "darwin"* ]]; then
-        ulimit -n 102400 2>/dev/null || ulimit -n 4096 2>/dev/null || true
-    fi
-    
-    # Ensure warpendpoint is executable
-    if [[ ! -x "$endpoint_path" ]]; then
-        chmod +x "$endpoint_path" 2>/dev/null
-        if [[ ! -x "$endpoint_path" ]]; then
-            error_exit "warpendpoint is not executable."
+    for ((i=0; i<count; i++)); do
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            response=$(timeout 2 ping -c 1 "$ip" 2>/dev/null | grep "time=" | awk -F"time=" '{print $2}' | cut -d' ' -f1)
+        else
+            response=$(timeout 2 ping -c 1 -W 2 "$ip" 2>/dev/null | grep "time=" | awk -F"time=" '{print $2}' | cut -d' ' -f1)
         fi
-    fi
-    
-    # Divide the IP file into smaller batches for parallel scanning
-    for ((i=0; i<batches; i++)); do
-        local start=$((i * batch_size + 1))
-        local end=$((start + batch_size - 1))
-        
-        local batch_file="$TEMP_DIR/batch_$i.txt"
-        sed -n "${start},${end}p" "$IP_FILE" > "$batch_file"
-        
-        (
-            "$endpoint_path" -f "$batch_file" -o "$TEMP_DIR/result_$i.csv" >/dev/null 2>&1
-        ) &
-        
-        echo -ne "\r${cyan}Progress: $((i * 100 / batches))%${reset}"
+        if [[ -n "$response" ]]; then
+            results+=("$response")
+            sum=$(echo "$sum + $response" | bc -l)
+        else
+            ((packet_loss++))
+        fi
+        sleep 0.2
     done
-    
-    wait
-    echo -e "\r${green}Progress: 100%${reset}"
-    
-    if ls "$TEMP_DIR"/result_*.csv 1>/dev/null 2>&1; then
-        cat "$TEMP_DIR"/result_*.csv > "$CSV_FILE"
-        rm -f "$TEMP_DIR"/result_*.csv "$TEMP_DIR"/batch_*.txt
-        convert_csv_to_txt
-    else
-        error_exit "No scan results obtained."
+
+    local avg=0
+    if [ "${#results[@]}" -gt 0 ]; then
+        avg=$(echo "scale=2; $sum / ${#results[@]}" | bc -l)
     fi
+
+    if [ "${#results[@]}" -gt 1 ]; then
+        local sum_sq_diff=0
+        for r in "${results[@]}"; do
+            sum_sq_diff=$(echo "$sum_sq_diff + ($r - $avg)^2" | bc -l)
+        done
+        jitter=$(echo "scale=2; sqrt($sum_sq_diff / ${#results[@]})" | bc -l)
+    fi
+
+    packet_loss=$(echo "scale=2; ($packet_loss * 100) / $count" | bc -l)
+
+    echo "$avg,$jitter,$packet_loss"
 }
 
-# Execute scan and display results
-scan_results() {
+# Run detailed performance tests for an IP
+run_all_tests() {
+    local ip="$1"
+    echo -e "${magenta}Running detailed performance tests for IP: $ip${reset}"
+    
+    echo -e "${cyan}Stability Test (Average, Jitter, Packet Loss):${reset}"
+    stability_result=$(test_stability "$ip")
+    echo -e "${blue}$stability_result${reset}"
+    
+    echo -e "${cyan}Optimal MTU Test (using ping test):${reset}"
+    local start_mtu=1500
+    local min_mtu=576
+    local best_mtu=$start_mtu
+    while [ $best_mtu -gt $min_mtu ]; do
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            if ping -c 1 -s $((best_mtu - 28)) "$ip" &>/dev/null; then
+                break
+            fi
+        else
+            if ping -c 1 -M do -s $((best_mtu - 28)) "$ip" &>/dev/null; then
+                break
+            fi
+        fi
+        best_mtu=$((best_mtu - 10))
+    done
+    echo -e "${blue}Optimal MTU: $best_mtu${reset}"
+    
+    echo -e "${cyan}GeoIP Info (using ipinfo.io):${reset}"
+    local geo_data=$(curl -s "https://ipinfo.io/$ip/json")
+    local country=$(echo "$geo_data" | grep -oP '"country": "\K[^"]+')
+    local region=$(echo "$geo_data" | grep -oP '"region": "\K[^"]+')
+    local city=$(echo "$geo_data" | grep -oP '"city": "\K[^"]+')
+    echo -e "${blue}GeoIP for $ip: Country: $country, Region: $region, City: $city${reset}"
+}
+
+# ----- Inline Scanning Method -----
+inline_scan() {
     local ip_type="$1"
-    
-    if [[ "$ip_type" == "ipv4" ]]; then
-        generate_ipv4
-    elif [[ "$ip_type" == "ipv6" ]]; then
-        generate_ipv6
+    if [ "$ip_type" = "ipv4" ]; then
+         generate_ipv4
+    elif [ "$ip_type" = "ipv6" ]; then
+         generate_ipv6
     else
-        error_exit "Invalid IP type."
+         error_exit "Invalid IP type."
     fi
+
+    echo -e "${blue}Performing inline scan on generated IPs...${reset}"
     
-    download_warpendpoint
-    parallel_scan "$ip_type"
+    local best_ip=""
+    local best_delay=99999
+    local results=()
     
-    clear
-    if [[ -f "$RESULT_FILE" ]]; then
-        echo -e "${magenta}Scan Results:${reset}"
-        head -n 11 "$RESULT_FILE"
-        
-        # Extract the best IP addresses
-        local best_ipv4=""
-        local best_ipv6=""
-        local delay=""
-        
-        if [[ "$ip_type" == "ipv4" ]]; then
-            best_ipv4=$(grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+" "$RESULT_FILE" | head -n 1)
-            delay=$(grep -oE "[0-9]+ ms|timeout" "$RESULT_FILE" | head -n 1)
-        else
-            best_ipv6=$(grep -oE "\[.*\]:[0-9]+" "$RESULT_FILE" | head -n 1)
-            delay=$(grep -oE "[0-9]+ ms|timeout" "$RESULT_FILE" | head -n 1)
-        fi
-        
-        echo ""
-        echo -e "${green}Results saved in $RESULT_FILE${reset}"
-        echo ""
-        
-        if [[ "$ip_type" == "ipv4" && -n "$best_ipv4" ]]; then
-            echo -e "${magenta}******** Best IPv4 ********${reset}"
-            echo -e "${blue}$best_ipv4${reset}"
-            echo -e "${blue}Delay: ${green}[$delay]${reset}"
-            echo "$best_ipv4" > "$BEST_IPS_FILE"
-        elif [[ "$ip_type" == "ipv6" && -n "$best_ipv6" ]]; then
-            echo -e "${magenta}******** Best IPv6 ********${reset}"
-            echo -e "${blue}$best_ipv6${reset}"
-            echo -e "${blue}Delay: ${green}[$delay]${reset}"
-            echo "$best_ipv6" > "$BEST_IPS_FILE"
-        else
-            echo -e "${red}No valid IP addresses found.${reset}"
-        fi
-    else
-        echo -e "${red}$RESULT_FILE not found. The scan may have failed.${reset}"
-    fi
+    while IFS= read -r ip; do
+         result=$(test_stability "$ip")  # returns avg,jitter,packet_loss
+         avg=$(echo "$result" | cut -d',' -f1)
+         packet_loss=$(echo "$result" | cut -d',' -f3)
+         results+=("$ip,$avg,$packet_loss")
+         # Consider IP only if packet_loss is less than 100%
+         if [ "$(echo "$packet_loss < 100" | bc -l)" -eq 1 ] && [ "$(echo "$avg < $best_delay" | bc -l)" -eq 1 ]; then
+              best_delay="$avg"
+              best_ip="$ip"
+         fi
+    done < "$IP_FILE"
+    
+    echo -e "${magenta}Inline Scan Results (Top 10 by average delay):${reset}"
+    printf "%s\n" "${results[@]}" | sort -t',' -k2,2n | head -n 10 | awk -F, '{printf "Endpoint: %s | Avg Delay: %s ms | Packet Loss: %s%%\n", $1, $2, $3}'
     
     echo ""
+    if [ -n "$best_ip" ]; then
+         echo -e "${green}Best endpoint selected: $best_ip with average delay $best_delay ms${reset}"
+         echo "$best_ip" > "$BEST_IPS_FILE"
+    else
+         echo -e "${red}No valid IP address found.${reset}"
+    fi
+
+    echo -ne "${cyan}Run detailed performance tests on $best_ip? (y/n): ${reset}"
+    read -r run_tests
+    if [[ "$run_tests" =~ ^[Yy]$ ]]; then
+         run_all_tests "$best_ip"
+    fi
+
     echo -ne "${cyan}Return to the main menu? (y/n): ${reset}"
     read -r return_to_menu
     if [[ "$return_to_menu" =~ ^[Yy]$ ]]; then
-        main_menu
+         main_menu
     fi
 }
 
-# Warp Hidify Feature
+# ----- Warp Hidify Feature -----
 warp_hidify() {
     local ip_type="ipv4"
-    # If user wishes to use IPv6, pass "ipv6" as an argument (optional)
-    if [[ "$1" == "ipv6" ]]; then
+    if [ "$1" = "ipv6" ]; then
          ip_type="ipv6"
     fi
     local best_ip=""
-    if [[ -s "$BEST_IPS_FILE" ]]; then
+    if [ -s "$BEST_IPS_FILE" ]; then
          best_ip=$(head -n 1 "$BEST_IPS_FILE")
     else
-         scan_results "$ip_type"
-         best_ip=$(grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+" "$RESULT_FILE" | head -n 1)
+         inline_scan "$ip_type"
+         best_ip=$(head -n 1 "$BEST_IPS_FILE")
     fi
-    if [[ -z "$best_ip" ]]; then
+    if [ -z "$best_ip" ]; then
          error_exit "No valid IP found."
     fi
     local warp_uri=""
-    if [[ "$ip_type" == "ipv4" ]]; then
+    if [ "$ip_type" = "ipv4" ]; then
          local port=1843
          local ip_addr=$(echo "$best_ip" | cut -d: -f1)
          warp_uri="warp://$ip_addr:$port/?ifp=5-10@void1x0"
@@ -377,7 +292,7 @@ warp_hidify() {
     fi
 }
 
-# Generate a WireGuard configuration file with new keys
+# ----- Generate WireGuard Configuration -----
 generate_wg_config() {
     echo -ne "${cyan}Do you want to generate a WireGuard configuration? (y/n): ${reset}"
     read -r resp
@@ -395,16 +310,12 @@ generate_wg_config() {
             
             case "$ip_choice" in
                 1)
-                    download_warpendpoint
-                    generate_ipv4
-                    parallel_scan "ipv4"
-                    endpoint=$(grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+" "$RESULT_FILE" | head -n 1)
+                    inline_scan "ipv4"
+                    endpoint=$(head -n 1 "$BEST_IPS_FILE")
                     ;;
                 2)
-                    download_warpendpoint
-                    generate_ipv6
-                    parallel_scan "ipv6"
-                    endpoint=$(grep -oE "\[.*\]:[0-9]+" "$RESULT_FILE" | head -n 1)
+                    inline_scan "ipv6"
+                    endpoint=$(head -n 1 "$BEST_IPS_FILE")
                     ;;
                 *)
                     echo -e "${yellow}Invalid selection. Using the default endpoint.${reset}"
@@ -453,7 +364,7 @@ generate_wg_config() {
         
         echo -ne "${cyan}Enter the config file path (default: $DEFAULT_CONFIG_PATH): ${reset}"
         read -r config_path
-        if [[ -z "$config_path" ]]; then
+        if [ -z "$config_path" ]; then
             config_path="$DEFAULT_CONFIG_PATH"
         fi
         
@@ -472,7 +383,7 @@ AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = $endpoint
 EOF
         
-        if [[ $? -eq 0 ]]; then
+        if [ $? -eq 0 ]; then
             echo -e "${green}WireGuard configuration generated and saved in $config_path${reset}"
             chmod 600 "$config_path" 2>/dev/null || true
             
@@ -499,11 +410,10 @@ EOF
     fi
 }
 
-# Main Menu
+# ----- Main Menu -----
 main_menu() {
     clear
     echo -e "${magenta}Warp IP Scanner & WireGuard Config Generator v$VERSION${reset}"
-    check_update
     echo -e "${blue}Please select an option:${reset}"
     echo -e "${yellow}[1] Scan IPv4${reset}"
     echo -e "${yellow}[2] Scan IPv6${reset}"
@@ -515,12 +425,10 @@ main_menu() {
     
     case "$choice" in
         1)
-            download_warpendpoint
-            scan_results "ipv4"
+            inline_scan "ipv4"
             ;;
         2)
-            download_warpendpoint
-            scan_results "ipv6"
+            inline_scan "ipv6"
             ;;
         3)
             generate_wg_config
@@ -542,12 +450,10 @@ main_menu() {
 
 # ----- Start the Program -----
 
-# Check for essential commands
 for cmd in grep sort; do
     if ! command -v "$cmd" &>/dev/null; then
         error_exit "Command $cmd not found. Please install the essential system packages."
     fi
 done
 
-# Start by displaying the main menu
 main_menu
