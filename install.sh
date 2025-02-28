@@ -1,7 +1,36 @@
 #!/bin/bash
-# Warp IP Scanner & WireGuard Config Generator
+# Check for minimum Bash version (4+ is required for associative arrays)
+if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
+    echo "Error: Bash version 4 or higher is required." >&2
+    exit 1
+fi
 
-VERSION="1.2"
+# ----- Error Handling & Prerequisite Checks -----
+
+error_exit() {
+    echo "Error: $1" >&2
+    exit 1
+}
+
+# Check for required commands: bc and dig
+for cmd in bc dig; do
+    if ! command -v "$cmd" >/dev/null; then
+        error_exit "Required command '$cmd' not found. Please install it."
+    fi
+done
+
+# Check for timeout command. On macOS, if not found, try using gtimeout (from coreutils).
+if ! command -v timeout >/dev/null; then
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        if command -v gtimeout >/dev/null; then
+            alias timeout=gtimeout
+        else
+            error_exit "timeout command not found. On macOS, please install coreutils (e.g., via Homebrew) for gtimeout."
+        fi
+    else
+        error_exit "timeout command not found. Please install it."
+    fi
+fi
 
 # ----- Setting Variables and Constants -----
 
@@ -23,6 +52,8 @@ else
     cyan=''
     reset=''
 fi
+
+VERSION="1.2"
 
 # Set temporary and output file paths based on platform
 if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -59,19 +90,10 @@ case "$ARCH" in
         ;;
 esac
 
-# ----- Common Functions -----
-
-error_exit() {
-    echo -e "${red}Error: $1${reset}" >&2
-    exit 1
-}
-
-show_progress() {
-    echo -e "${blue}$1${reset}"
-}
+# ----- Cleanup and Download Functions -----
 
 cleanup() {
-    show_progress "Cleaning up temporary files..."
+    echo -e "${blue}Cleaning up temporary files...${reset}"
     rm -rf "$TEMP_DIR"
     echo -e "${green}Cleanup complete.${reset}"
 }
@@ -113,7 +135,7 @@ download_warpendpoint() {
 # ----- IP Generation Functions -----
 
 generate_ipv4() {
-    show_progress "Generating IPv4 addresses..."
+    echo -e "${blue}Generating IPv4 addresses...${reset}"
     local total=100
     local bases=("162.159.192" "162.159.193" "162.159.194" "162.159.195" "188.114.96" "188.114.97" "188.114.98" "188.114.99" "188.114.100" "188.114.101")
     
@@ -133,7 +155,7 @@ generate_ipv4() {
 }
 
 generate_ipv6() {
-    show_progress "Generating IPv6 addresses..."
+    echo -e "${blue}Generating IPv6 addresses...${reset}"
     local total=100
     local bases=("2606:4700:d0::" "2606:4700:d1::" "2606:4700:110::")
     
@@ -199,7 +221,11 @@ test_stability() {
     local packet_loss=0
     
     for ((i=0; i<count; i++)); do
-        response=$(timeout 2 ping -c 1 -W 2 "$ip" 2>/dev/null | grep "time=" | awk -F "time=" '{print $2}' | cut -d ' ' -f 1)
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            response=$(timeout 2 ping -c 1 "$ip" 2>/dev/null | grep "time=" | awk -F "time=" '{print $2}' | cut -d ' ' -f 1)
+        else
+            response=$(timeout 2 ping -c 1 -W 2 "$ip" 2>/dev/null | grep "time=" | awk -F "time=" '{print $2}' | cut -d ' ' -f 1)
+        fi
         if [[ -n "$response" ]]; then
             results+=("$response")
             sum=$(echo "$sum + $response" | bc -l)
@@ -235,8 +261,14 @@ find_optimal_mtu() {
     
     echo "Finding optimal MTU for $ip..."
     while [[ $best_mtu -gt $min_mtu ]]; do
-        if ping -c 1 -M do -s $((best_mtu - 28)) "$ip" &>/dev/null; then
-            break
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            if ping -c 1 -s $((best_mtu - 28)) "$ip" &>/dev/null; then
+                break
+            fi
+        else
+            if ping -c 1 -M do -s $((best_mtu - 28)) "$ip" &>/dev/null; then
+                break
+            fi
         fi
         best_mtu=$((best_mtu - 10))
     done
@@ -297,7 +329,7 @@ parallel_scan() {
     total_ips=$(wc -l < "$IP_FILE")
     local batches=$(( (total_ips + batch_size - 1) / batch_size ))
     
-    show_progress "Scanning IP addresses in parallel..."
+    echo -e "${blue}Scanning IP addresses in parallel...${reset}"
     if [[ "$OSTYPE" != "darwin"* ]]; then
         ulimit -n 102400 2>/dev/null || ulimit -n 4096 2>/dev/null || true
     fi
@@ -349,7 +381,7 @@ get_clean_ips() {
          if (( count >= 10 )); then
               break
          else
-              show_progress "Found $count clean IPs. Generating more..."
+              echo -e "${blue}Found $count clean IPs. Generating more...${reset}"
          fi
     done
     cp "$clean_file" "$BEST_IPS_FILE"
