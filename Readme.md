@@ -1,7 +1,7 @@
 ## 🌍 Choose Your Language | زبان خود را انتخاب کنید | 选择您的语言:
-- [English](#-english)
-- [Persian](#-persian)
-- [Chinese](#-chinese)
+- [English](#english)
+- [Persian](#persian)
+- [Chinese](#chinese)
 
 ---
 
@@ -47,7 +47,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/void1x0/WARP-Scanner/main/in
 
 ---
 
-## English
+## english
 # WARP-Scanner
 
 WARP-Scanner is a fast and powerful tool for scanning and checking the status of WARP on servers and clients.
@@ -92,7 +92,7 @@ For further communication, you can contact us via Telegram or email:
 
 ---
 
-## Chinese
+## chinese
 # WARP-Scanner
 
 WARP-Scanner 是一款快速且强大的工具，用于扫描和检查服务器及客户端上 WARP 的状态。
