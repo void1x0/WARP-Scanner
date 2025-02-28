@@ -24,12 +24,7 @@ WARP-Scanner یک ابزار سریع و قدرتمند برای اسکن و ب�
 pkg update && pkg upgrade -y
 ```
 
-2. نصب پکیج های مورد نیاز:
-```bash
-pkg install -y bc dnsutils curl wget coreutils wireguard-tools
-```
-
-3. دانلود و اجرای اسکریپت نصب:
+2. دانلود و اجرای اسکریپت نصب:
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/void1x0/WARP-Scanner/main/install.sh)
 ```
@@ -65,12 +60,6 @@ Update packages:
 
 ```bash
 pkg update && pkg upgrade -y
-```
-
-Installing the required packages:
-
-```bash
-pkg install -y bc dnsutils curl wget coreutils wireguard-tools
 ```
 
 Download and run the installation script:
@@ -110,12 +99,6 @@ WARP-Scanner 是一款快速且强大的工具，用于扫描和检查服务器�
 
 ```bash
 pkg update && pkg upgrade -y
-```
-
-安装所需的软件包:
-
-```bash
-pkg install -y bc dnsutils curl wget coreutils wireguard-tools
 ```
 
 下载并执行安装脚本:
