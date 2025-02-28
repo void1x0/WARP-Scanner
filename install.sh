@@ -16,6 +16,11 @@ NC='\033[0m'          # No Color
 # Version
 VERSION="1.3.80"
 
+# Testing Parameters
+PING_COUNT=5          # Number of pings per IP
+TIMEOUT=2             # Timeout in seconds
+MIN_SUCCESS_RATE=80   # Minimum success rate required (%)
+
 # Loading animation
 show_loading() {
     local pid=$1
@@ -35,8 +40,10 @@ show_loading() {
 generate_wireguard_url() {
     local ip=$1
     local private_key=$(wg genkey)
-    local public_key=$(echo "$private_key" | wg pubkey)
-    local url="wireguard://${private_key}@${ip}:2408?address=172.16.0.2/32&presharedkey=&reserved=125,208,143&publickey=bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=&mtu=1280#@void1x0"
+    # Extract IP and port from the best_ip (format: IP:PORT)
+    local base_ip=$(echo "$ip" | cut -d':' -f1)
+    local port=$(echo "$ip" | cut -d':' -f2)
+    local url="wireguard://${private_key}@${base_ip}:${port}?address=172.16.0.2/32&presharedkey=&reserved=125,208,143&publickey=bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=&mtu=1280#@void1x0"
     echo "$url"
 }
 
@@ -73,7 +80,7 @@ check_cpu() {
     esac
 }
 
-# Download warpendpoint if needed
+# Setup warpendpoint
 setup_warpendpoint() {
     if [[ ! -f "$PREFIX/bin/warpendpoint" ]]; then
         echo -e "${CYAN}Downloading warpendpoint program...${NC}"
@@ -145,12 +152,21 @@ process_results() {
 
     clear
     echo -e "${BLUE}╔═════════════ SCAN RESULTS ═════════════╗${NC}"
+    # Show detailed test results including packet loss and jitter
     cat result.csv | awk -F, '$3!="timeout ms" {print} ' | sort -t, -nk2 -nk3 | uniq | head -11 | \
-        awk -F, '{printf "║ %-35s Delay: %-8s ║\n", $1, $3}'
+        awk -F, '{
+            success_rate = 100 - $2
+            quality = "Poor"
+            if (success_rate >= 95 && $3 <= 100) quality = "Excellent"
+            else if (success_rate >= 90 && $3 <= 150) quality = "Good"
+            else if (success_rate >= 85 && $3 <= 200) quality = "Fair"
+            printf "║ %-25s │ %5.1f%% │ %-6s │ %-9s ║\n", $1, success_rate, $3, quality
+        }'
     echo -e "${BLUE}╚══════════════════════════════════════════╝${NC}\n"
 
     best_ip=$(cat result.csv | awk -F, 'NR==2 {print $1}')
     delay=$(cat result.csv | grep -oE "[0-9]+ ms|timeout" | head -n 1)
+    success_rate=$(cat result.csv | awk -F, 'NR==2 {print 100-$2}')
 
     # Generate URLs
     wha_url="warp://${best_ip}/?ifp=5-10@void1x0"
@@ -158,7 +174,7 @@ process_results() {
 
     echo -e "${PURPLE}Best Endpoint Found:${NC}"
     echo -e "${WHITE}$best_ip${NC}"
-    echo -e "${YELLOW}Delay: $delay${NC}\n"
+    echo -e "${YELLOW}Delay: $delay │ Success Rate: ${success_rate}%${NC}\n"
 
     echo -e "${PURPLE}Warp Hiddify App (WHA) URL:${NC}"
     echo -e "${WHITE}$wha_url${NC}\n"
