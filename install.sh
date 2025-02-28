@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# WARP Scanner v1.0.0
-# Improved version with WHA support
+# WARP Scanner v1.3.80
+# An optimized version of Ptechgithub with WHA support and improved UI
 
 # Colors
 RED='\033[1;31m'      # Brighter red
@@ -14,12 +14,12 @@ WHITE='\033[1;37m'    # Bright white
 NC='\033[0m'          # No Color
 
 # Version
-VERSION="1.0.0"
+VERSION="1.3.80"
 
 # Loading animation
 show_loading() {
     local pid=$1
-    local delay=0.1
+    local delay=0.2
     local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
         local temp=${spinstr#?}
@@ -35,10 +35,19 @@ show_loading() {
 print_header() {
     clear
     echo -e "${BLUE}╔══════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${PURPLE}           WARP SCANNER          ${BLUE}║${NC}"
+    echo -e "${BLUE}║${PURPLE}             WARP SCANNER              ${BLUE}║${NC}"
     echo -e "${BLUE}║${CYAN}               Version ${VERSION}              ${BLUE}║${NC}"
     echo -e "${BLUE}╚══════════════════════════════════════════╝${NC}"
     echo -e "${PURPLE}              By: void1x0${NC}\n"
+}
+
+# Generate WireGuard URL for v2ray
+generate_wireguard_url() {
+    local ip=$1
+    local private_key=$(wg genkey)
+    local public_key=$(echo "$private_key" | wg pubkey)
+    local url="wireguard://${private_key}@${ip}:1002?wnoise=quic&address=172.16.0.2/32&reserved=147,79,152&keepalive=5&wpayloadsize=5-10&publickey=${public_key}&wnoisedelay=1&wnoisecount=15&mtu=1280#@void1x0"
+    echo "$url"
 }
 
 # Check CPU architecture
@@ -127,6 +136,12 @@ process_results() {
     show_loading $!
     wait
 
+    # Check if warpendpoint was successful
+    if [ ! -f "result.csv" ]; then
+        echo -e "${RED}Error: Failed to generate results. Please try again.${NC}"
+        exit 1
+    fi
+
     clear
     echo -e "${BLUE}╔═════════════ SCAN RESULTS ═════════════╗${NC}"
     cat result.csv | awk -F, '$3!="timeout ms" {print} ' | sort -t, -nk2 -nk3 | uniq | head -11 | \
@@ -136,15 +151,19 @@ process_results() {
     best_ip=$(cat result.csv | awk -F, 'NR==2 {print $1}')
     delay=$(cat result.csv | grep -oE "[0-9]+ ms|timeout" | head -n 1)
 
-    # Generate WHA URL
+    # Generate URLs
     wha_url="warp://${best_ip}/?ifp=5-10@void1x0"
+    wireguard_url=$(generate_wireguard_url "$best_ip")
 
-    echo -e "${GREEN}Best Endpoint Found:${NC}"
-    echo -e "${CYAN}$best_ip${NC}"
+    echo -e "${PURPLE}Best Endpoint Found:${NC}"
+    echo -e "${WHITE}$best_ip${NC}"
     echo -e "${YELLOW}Delay: $delay${NC}\n"
 
-    echo -e "${GREEN}Warp Hiddify App (WHA) URL:${NC}"
-    echo -e "${CYAN}$wha_url${NC}\n"
+    echo -e "${PURPLE}Warp Hiddify App (WHA) URL:${NC}"
+    echo -e "${WHITE}$wha_url${NC}\n"
+
+    echo -e "${PURPLE}WireGuard URL for v2ray:${NC}"
+    echo -e "${WHITE}$wireguard_url${NC}\n"
 
     # Cleanup
     rm -f warpendpoint ip.txt 2>/dev/null
@@ -182,7 +201,7 @@ main() {
                 process_results
                 ;;
             0)
-                echo -e "\n${GREEN}Thank you for using WARP Scanner Enhanced!${NC}"
+                echo -e "\n${GREEN}Thank you for using WARP Scanner!${NC}"
                 exit 0
                 ;;
             *)
