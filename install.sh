@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# WARP Scanner Enhanced v1.0.0
+# WARP Scanner v1.0.0
 # Improved version with WHA support
 
 # Colors
@@ -35,7 +35,7 @@ show_loading() {
 print_header() {
     clear
     echo -e "${BLUE}╔══════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${PURPLE}           WARP SCANNER ENHANCED          ${BLUE}║${NC}"
+    echo -e "${BLUE}║${PURPLE}           WARP SCANNER          ${BLUE}║${NC}"
     echo -e "${BLUE}║${CYAN}               Version ${VERSION}              ${BLUE}║${NC}"
     echo -e "${BLUE}╚══════════════════════════════════════════╝${NC}"
     echo -e "${PURPLE}              By: void1x0${NC}\n"
