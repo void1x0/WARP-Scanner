@@ -6,14 +6,13 @@ if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
 fi
 
 # ----- Error Handling & Prerequisite Checks -----
-
 error_exit() {
     echo "Error: $1" >&2
     exit 1
 }
 
-# Check for required commands: bc and dig
-for cmd in bc dig; do
+# Check for required commands: bc, dig, curl, sed, awk, sort
+for cmd in bc dig curl sed awk sort; do
     if ! command -v "$cmd" >/dev/null; then
         error_exit "Required command '$cmd' not found. Please install it."
     fi
@@ -33,7 +32,6 @@ if ! command -v timeout >/dev/null; then
 fi
 
 # ----- Setting Variables and Constants -----
-
 # Colors (enabled if terminal supports color)
 if [ -t 1 ]; then
     red='\033[38;5;196m'
@@ -67,10 +65,9 @@ else
     TEMP_DIR="/tmp/warp-scanner"
 fi
 
-# Create temporary directory
 mkdir -p "$TEMP_DIR"
 IP_FILE="$TEMP_DIR/ip.txt"
-RESULT_FILE="$TEMP_DIR/result.txt"
+RESULT_CSV="$TEMP_DIR/result.csv"
 BEST_IPS_FILE="$TEMP_DIR/clean_ips_final.txt"
 
 # Determine system architecture for downloading the appropriate warpendpoint
@@ -91,7 +88,6 @@ case "$ARCH" in
 esac
 
 # ----- Cleanup and Download Functions -----
-
 cleanup() {
     echo -e "${blue}Cleaning up temporary files...${reset}"
     rm -rf "$TEMP_DIR"
@@ -121,11 +117,9 @@ download_file() {
 
 download_warpendpoint() {
     local endpoint_path="$TEMP_DIR/warpendpoint"
-    
     if [[ ! -f "$endpoint_path" ]]; then
         download_file "https://raw.githubusercontent.com/void1x0/WARP-Scanner/main/endip/$ENDPOINT_ARCH" "$endpoint_path" "warpendpoint"
         chmod +x "$endpoint_path"
-        
         if [[ ! -x "$endpoint_path" ]]; then
             error_exit "warpendpoint is not executable or is corrupted."
         fi
@@ -133,7 +127,6 @@ download_warpendpoint() {
 }
 
 # ----- IP Generation Functions -----
-
 generate_ipv4() {
     echo -e "${blue}Generating IPv4 addresses...${reset}"
     local total=100
@@ -183,7 +176,6 @@ generate_ipv6() {
 }
 
 # ----- WireGuard Key Generation -----
-
 generate_wg_keys() {
     if command -v wg &>/dev/null; then
         local private_key
@@ -197,7 +189,6 @@ generate_wg_keys() {
 }
 
 # ----- Performance Test Functions -----
-
 test_bandwidth() {
     local ip="$1"
     local temp_file="$TEMP_DIR/speedtest.tmp"
@@ -319,139 +310,53 @@ run_all_tests() {
     echo -e "${blue}$geo_result${reset}"
 }
 
-# ----- Parallel IP Scanning -----
-
-parallel_scan() {
+# ----- New Scanning Method -----
+new_scan() {
     local ip_type="$1"
-    local endpoint_path="$TEMP_DIR/warpendpoint"
-    local batch_size=10
-    local total_ips
-    total_ips=$(wc -l < "$IP_FILE")
-    local batches=$(( (total_ips + batch_size - 1) / batch_size ))
-    
-    echo -e "${blue}Scanning IP addresses in parallel...${reset}"
-    if [[ "$OSTYPE" != "darwin"* ]]; then
-        ulimit -n 102400 2>/dev/null || ulimit -n 4096 2>/dev/null || true
-    fi
-    if [[ ! -x "$endpoint_path" ]]; then
-        chmod +x "$endpoint_path" 2>/dev/null
-        if [[ ! -x "$endpoint_path" ]]; then
-            error_exit "warpendpoint is not executable."
-        fi
-    fi
-    
-    > "$RESULT_FILE"
-    for ((i=0; i<batches; i++)); do
-        local start=$(( i * batch_size + 1 ))
-        local end=$(( start + batch_size - 1 ))
-        local batch_file="$TEMP_DIR/batch_$i.txt"
-        sed -n "${start},${end}p" "$IP_FILE" > "$batch_file"
-        (
-            "$endpoint_path" -f "$batch_file" 2>/dev/null | \
-            awk -F, '$3!="timeout ms" {print "Endpoint: "$1" | Delay: "$3}' >> "$RESULT_FILE"
-        ) &
-        echo -ne "\r${cyan}Progress: $(( i * 100 / batches ))%${reset}"
-    done
-    wait
-    echo -e "\r${green}Progress: 100%${reset}"
-    rm -f "$TEMP_DIR"/batch_*.txt
-    if [[ ! -s "$RESULT_FILE" ]]; then
-        error_exit "No scan results obtained."
-    fi
-}
-
-# ----- Get 10 Clean IPs -----
-
-get_clean_ips() {
-    local ip_type="$1"
-    local clean_file="$TEMP_DIR/clean_ips.txt"
-    rm -f "$clean_file"
-    touch "$clean_file"
-    while true; do
-         if [[ "$ip_type" == "ipv4" ]]; then
-             generate_ipv4
-         else
-             generate_ipv6
-         fi
-         parallel_scan "$ip_type"
-         sed -E 's/^Endpoint: ([^ ]+) \| Delay:.*$/\1/' "$RESULT_FILE" >> "$clean_file"
-         sort -u "$clean_file" -o "$clean_file"
-         local count
-         count=$(wc -l < "$clean_file")
-         if (( count >= 10 )); then
-              break
-         else
-              echo -e "${blue}Found $count clean IPs. Generating more...${reset}"
-         fi
-    done
-    cp "$clean_file" "$BEST_IPS_FILE"
-}
-
-# ----- Scan Clean IPs and Display Results -----
-
-scan_clean_ips() {
-    local ip_type="$1"
-    clear
-    echo -e "${magenta}Scanning for clean ${ip_type} IPs...${reset}"
-    download_warpendpoint
-    get_clean_ips "$ip_type"
-    
-    echo ""
-    echo -e "${green}Clean IPs found:${reset}"
-    nl -w2 -s'. ' "$BEST_IPS_FILE"
-    
-    echo ""
-    echo -ne "${cyan}Enter the index (1-10) of the IP to run performance tests on (or press Enter to skip): ${reset}"
-    read -r index
-    if [[ -n "$index" ]]; then
-         selected_ip=$(sed -n "${index}p" "$BEST_IPS_FILE")
-         if [[ -n "$selected_ip" ]]; then
-              run_all_tests "$selected_ip"
-         else
-              echo -e "${red}Invalid index.${reset}"
-         fi
-    fi
-    
-    echo ""
-    echo -ne "${cyan}Return to main menu? (y/n): ${reset}"
-    read -r return_to_menu
-    if [[ "$return_to_menu" =~ ^[Yy]$ ]]; then
-         main_menu
-    fi
-}
-
-# ----- Warp Hidify Feature -----
-
-warp_hidify() {
-    local ip_type="ipv4"
-    if [[ "$1" == "6" ]]; then
-         ip_type="ipv6"
-    fi
-    local best_ip=""
-    if [[ -s "$BEST_IPS_FILE" ]]; then
-         best_ip=$(head -n 1 "$BEST_IPS_FILE")
-    else
-         get_clean_ips "$ip_type"
-         best_ip=$(head -n 1 "$BEST_IPS_FILE")
-    fi
-    if [[ -z "$best_ip" ]]; then
-         error_exit "No valid IP found."
-    fi
-    local warp_uri=""
     if [[ "$ip_type" == "ipv4" ]]; then
-         local port=1843
-         local ip_addr=$(echo "$best_ip" | cut -d: -f1)
-         warp_uri="warp://$ip_addr:$port/?ifp=5-10@void1x0"
+         generate_ipv4
     else
-         local port=878
-         local ip_addr=$(echo "$best_ip" | sed 's/^\[\(.*\)\]:.*$/\1/')
-         warp_uri="warp://[$ip_addr]:$port/?ifp=5-10@void1x0"
+         generate_ipv6
     fi
-    echo "$warp_uri" > "$TEMP_DIR/warp_hidify.txt"
-    echo -e "${green}Warp Hidify URI generated:${reset}"
-    echo "$warp_uri"
     
+    # Copy generated IPs to a file named ip.txt in TEMP_DIR
+    cp "$IP_FILE" "$TEMP_DIR/ip.txt"
+    
+    ulimit -n 102400
+    chmod +x "$TEMP_DIR/warpendpoint" >/dev/null 2>&1
+    
+    echo -e "${blue}Running warpendpoint scan...${reset}"
+    "$TEMP_DIR/warpendpoint"
+    
+    # Assume warpendpoint outputs results to RESULT_CSV
+    clear
+    cat "$RESULT_CSV" | awk -F, '$3!="timeout ms" {print}' | sort -t, -nk2 -nk3 | uniq | head -11 | awk -F, '{print "Endpoint "$1" Packet Loss Rate "$2" Average Delay "$3}'
+    
+    Endip_v4=$(cat "$RESULT_CSV" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+" | head -n 1)
+    Endip_v6=$(cat "$RESULT_CSV" | grep -oE "\[.*\]:[0-9]+" | head -n 1)
+    delay=$(cat "$RESULT_CSV" | grep -oE "[0-9]+ ms|timeout" | head -n 1)
     echo ""
+    echo -e "${green}Results Saved in $RESULT_CSV${reset}"
+    echo ""
+    if [ "$Endip_v4" ]; then
+         echo -e "${purple}************************************${reset}"
+         echo -e "${purple}*           ${yellow}Best IPv4:Port${purple}         *${reset}"
+         echo -e "${purple}*                                  *${reset}"
+         echo -e "${purple}*          ${cyan}$Endip_v4${purple}     *${reset}"
+         echo -e "${purple}*           ${cyan}Delay: ${green}[$delay]        ${purple}*${reset}"
+         echo -e "${purple}************************************${reset}"
+    elif [ "$Endip_v6" ]; then
+         echo -e "${purple}********************************************${reset}"
+         echo -e "${purple}*          ${yellow}Best [IPv6]:Port                ${purple}*${reset}"
+         echo -e "${purple}*                                          *${reset}"
+         echo -e "${purple}* ${cyan}$Endip_v6${purple} *${reset}"
+         echo -e "${purple}*           ${cyan}Delay: ${green}[$delay]               ${purple}*${reset}"
+         echo -e "${purple}********************************************${reset}"
+    else
+         echo -e "${red} No valid IP addresses found.${reset}"
+    fi
+    rm "$TEMP_DIR/warpendpoint" >/dev/null 2>&1
+    rm -rf "$TEMP_DIR/ip.txt"
     echo -ne "${cyan}Return to main menu? (y/n): ${reset}"
     read -r return_to_menu
     if [[ "$return_to_menu" =~ ^[Yy]$ ]]; then
@@ -460,7 +365,6 @@ warp_hidify() {
 }
 
 # ----- WireGuard Config Generation -----
-
 generate_wg_config() {
     echo -ne "${cyan}Do you want to generate a WireGuard configuration? (y/n): ${reset}"
     read -r resp
@@ -476,12 +380,12 @@ generate_wg_config() {
             read -r ip_choice
             case "$ip_choice" in
                 1)
-                    scan_clean_ips "ipv4"
-                    endpoint=$(head -n 1 "$BEST_IPS_FILE")
+                    new_scan "ipv4"
+                    endpoint=$(cat "$RESULT_CSV" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+" | head -n 1)
                     ;;
                 2)
-                    scan_clean_ips "ipv6"
-                    endpoint=$(head -n 1 "$BEST_IPS_FILE")
+                    new_scan "ipv6"
+                    endpoint=$(cat "$RESULT_CSV" | grep -oE "\[.*\]:[0-9]+" | head -n 1)
                     ;;
                 *)
                     echo -e "${yellow}Invalid selection. Using default endpoint.${reset}"
@@ -563,8 +467,45 @@ EOF
     fi
 }
 
-# ----- Main Menu -----
+# ----- Warp Hidify Feature -----
+warp_hidify() {
+    local ip_type="ipv4"
+    if [[ "$1" == "6" ]]; then
+         ip_type="ipv6"
+    fi
+    local best_ip=""
+    if [[ -s "$BEST_IPS_FILE" ]]; then
+         best_ip=$(head -n 1 "$BEST_IPS_FILE")
+    else
+         new_scan "$ip_type"
+         best_ip=$(cat "$RESULT_CSV" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+" | head -n 1)
+    fi
+    if [[ -z "$best_ip" ]]; then
+         error_exit "No valid IP found."
+    fi
+    local warp_uri=""
+    if [[ "$ip_type" == "ipv4" ]]; then
+         local port=1843
+         local ip_addr=$(echo "$best_ip" | cut -d: -f1)
+         warp_uri="warp://$ip_addr:$port/?ifp=5-10@void1x0"
+    else
+         local port=878
+         local ip_addr=$(echo "$best_ip" | sed 's/^\[\(.*\)\]:.*$/\1/')
+         warp_uri="warp://[$ip_addr]:$port/?ifp=5-10@void1x0"
+    fi
+    echo "$warp_uri" > "$TEMP_DIR/warp_hidify.txt"
+    echo -e "${green}Warp Hidify URI generated:${reset}"
+    echo "$warp_uri"
+    
+    echo ""
+    echo -ne "${cyan}Return to main menu? (y/n): ${reset}"
+    read -r return_to_menu
+    if [[ "$return_to_menu" =~ ^[Yy]$ ]]; then
+         main_menu
+    fi
+}
 
+# ----- Main Menu -----
 main_menu() {
     clear
     echo -e "${magenta}Warp IP Scanner & WireGuard Config Generator v$VERSION${reset}"
@@ -578,10 +519,10 @@ main_menu() {
     read -r choice
     case "$choice" in
         1)
-            scan_clean_ips "ipv4"
+            new_scan "ipv4"
             ;;
         2)
-            scan_clean_ips "ipv6"
+            new_scan "ipv6"
             ;;
         3)
             generate_wg_config
@@ -607,4 +548,5 @@ for cmd in grep sort; do
     fi
 done
 
+download_warpendpoint
 main_menu
