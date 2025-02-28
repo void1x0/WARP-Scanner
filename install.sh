@@ -396,7 +396,7 @@ parallel_scan() {
         sed -n "${start},${end}p" "$IP_FILE" > "$batch_file"
         
         (
-            "$endpoint_path" -f "$batch_file" -o "$TEMP_DIR/result_$i.csv" >/dev/null 2>&1
+            "$endpoint_path" -f "$batch_FILE" -o "$TEMP_DIR/result_$i.csv" >/dev/null 2>&1
         ) &
         
         echo -ne "\r${cyan}Progress: $(( i * 100 / batches ))%${reset}"
@@ -526,11 +526,15 @@ scan_results() {
     fi
 }
 
-# ----- Check main.txt Option -----
+# ----- Check main.txt Option (Download from GitHub) -----
 
 check_main_txt() {
+    local main_txt_url="https://raw.githubusercontent.com/void1x0/WARP-Scanner/main/main.txt"
+    echo -e "${cyan}Downloading main.txt from GitHub...${reset}"
+    download_file "$main_txt_url" "main.txt" "main.txt file"
+    
     if [[ ! -f "main.txt" ]]; then
-        echo -e "${red}File main.txt not found in the current directory.${reset}"
+        echo -e "${red}File main.txt not found after download.${reset}"
         return
     fi
 
