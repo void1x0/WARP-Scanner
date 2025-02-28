@@ -31,23 +31,24 @@ show_loading() {
     echo -en "\r"
 }
 
-# ASCII Art Header
-print_header() {
-    clear
-    echo -e "${BLUE}╔══════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${PURPLE}             WARP SCANNER              ${BLUE}║${NC}"
-    echo -e "${BLUE}║${CYAN}               Version ${VERSION}              ${BLUE}║${NC}"
-    echo -e "${BLUE}╚══════════════════════════════════════════╝${NC}"
-    echo -e "${PURPLE}              By: void1x0${NC}\n"
-}
-
 # Generate WireGuard URL for v2ray
 generate_wireguard_url() {
     local ip=$1
     local private_key=$(wg genkey)
     local public_key=$(echo "$private_key" | wg pubkey)
-    local url="wireguard://${private_key}@${ip}:1002?wnoise=quic&address=172.16.0.2/32&reserved=147,79,152&keepalive=5&wpayloadsize=5-10&publickey=${public_key}&wnoisedelay=1&wnoisecount=15&mtu=1280#@void1x0"
+    local url="wireguard://${private_key}@${ip}:2408?address=172.16.0.2/32&presharedkey=&reserved=125,208,143&publickey=bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=&mtu=1280#@void1x0"
     echo "$url"
+}
+
+# ASCII Art Header
+print_header() {
+    clear
+    echo -e "${BLUE}╔══════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║${PURPLE}             WARP SCANNER              ${BLUE}║${NC}"
+    echo -e "${BLUE}║${CYAN}      An optimized version of Ptechgithub    ${BLUE}║${NC}"
+    echo -e "${BLUE}║${CYAN}               Version ${VERSION}              ${BLUE}║${NC}"
+    echo -e "${BLUE}╚══════════════════════════════════════════╝${NC}"
+    echo -e "${PURPLE}              By: void1x0${NC}\n"
 }
 
 # Check CPU architecture
