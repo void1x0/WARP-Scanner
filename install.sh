@@ -1,5 +1,6 @@
+
 #!/bin/bash
-# Warp IP Scanner & WireGuard Config Generator
+# Access internet with WARP - Ultimate WARP Scanner & Config Generator
 
 VERSION="1.0"
 
@@ -19,19 +20,6 @@ cleanup() {
     # Keep result.txt and wg-config.conf for user reference
 }
 trap cleanup EXIT INT TERM
-
-# Check for updates
-check_update() {
-    echo -e "${cyan}Checking for updates...${reset}"
-    local latest_version
-    latest_version=$(curl -s "https://raw.githubusercontent.com/void1x0/WARP-Scanner/main/version.txt" 2>/dev/null || echo "$VERSION")
-    
-    if [[ "$latest_version" != "$VERSION" && "$latest_version" != "" ]]; then
-        echo -e "${yellow}Visit https://github.com/void1x0/WARP-Scanner for updates.${reset}"
-    else
-        echo -e "${green}You are using the latest version ($VERSION).${reset}"
-    fi
-}
 
 # Download warpendpoint if not available in the current directory
 download_warpendpoint() {
@@ -223,76 +211,81 @@ EOF
     fi
 }
 
-# ----- WHA (Warp Hiddify App) Function -----
+# Generate Warp Hiddify App URLs
+generate_wha_links() {
+    echo -ne "${cyan}Generate Warp Hiddify App links? (y/n): ${reset}"
+    read -r resp
+    if [[ "$resp" =~ ^[Yy]$ ]]; then
+        echo -ne "${cyan}Select IP version for scan: [1] IPv4, [2] IPv6: ${reset}"
+        read -r ip_choice
+        case "$ip_choice" in
+            1)
+                download_warpendpoint
+                generate_ipv4
+                scan_results "ipv4"
+                endpoint=$(grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+" result.txt | head -n 1)
+                if [[ -n "$endpoint" ]]; then
+                    # Extract IP and port
+                    ip=$(echo "$endpoint" | cut -d':' -f1)
+                    port=$(echo "$endpoint" | cut -d':' -f2)
+                    wha_url="warp://${ip}:${port}/?ifp=5-10@void1x0"
+                    echo -e "${magenta}******** WHA Link (IPv4) ********${reset}"
+                    echo -e "${green}$wha_url${reset}"
+                    echo ""
+                    echo -e "${yellow}Copy this link and use it in Warp Hiddify App${reset}"
+                else
+                    echo -e "${red}No valid IPv4 endpoint found.${reset}"
+                fi
+                ;;
+            2)
+                download_warpendpoint
+                generate_ipv6
+                scan_results "ipv6"
+                endpoint=$(grep -oE "\[.*\]:[0-9]+" result.txt | head -n 1)
+                if [[ -n "$endpoint" ]]; then
+                    # Extract IP and port
+                    ip=$(echo "$endpoint" | grep -oE "\[.*\]" | tr -d '[]')
+                    port=$(echo "$endpoint" | grep -oE ":[0-9]+" | tr -d ':')
+                    wha_url="warp://[${ip}]:${port}/?ifp=5-10@void1x0"
+                    echo -e "${magenta}******** WHA Link (IPv6) ********${reset}"
+                    echo -e "${green}$wha_url${reset}"
+                    echo ""
+                    echo -e "${yellow}Copy this link and use it in Warp Hiddify App${reset}"
+                else
+                    echo -e "${red}No valid IPv6 endpoint found.${reset}"
+                fi
+                ;;
+            *)
+                echo -e "${red}Invalid choice.${reset}"
+                ;;
+        esac
+    else
+        echo -e "${yellow}WHA link generation skipped.${reset}"
+    fi
+}
 
-warp_hiddify() {
-    local ip_type="ipv4"
-    if [[ "$1" == "6" ]]; then
-        ip_type="ipv6"
-    fi
-    
-    # Generate and scan IPs to find clean ones
-    echo -e "${magenta}Scanning for clean ${ip_type} IPs for Warp Hiddify App...${reset}"
-    download_warpendpoint
-    
-    if [[ "$ip_type" == "ipv4" ]]; then
-        generate_ipv4
-    else
-        generate_ipv6
-    fi
-    
-    # Perform scan
-    ulimit -n 102400 2>/dev/null || ulimit -n 4096 2>/dev/null || true
-    chmod +x warpendpoint >/dev/null 2>&1
-    if [[ -x "./warpendpoint" ]]; then
-        ./warpendpoint
-        convert_csv_to_txt
-    else
-        echo -e "${red}warpendpoint not found or not executable.${reset}"
-        exit 1
-    fi
-    
-    # Get the best IP
-    local best_ip=""
-    if [[ "$ip_type" == "ipv4" ]]; then
-        best_ip=$(grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" result.txt | head -n 1)
-    else
-        best_ip=$(grep -oE "\[.*\]" result.txt | head -n 1 | tr -d '[]')
-    fi
-    
-    if [[ -z "$best_ip" ]]; then
-        echo -e "${red}No valid IP found. Try again.${reset}"
-        return
-    fi
-    
-    # Generate Warp Hiddify URI
-    local warp_uri=""
-    if [[ "$ip_type" == "ipv4" ]]; then
-        local port=1843
-        warp_uri="warp://$best_ip:$port/?ifp=5-10@void1x0"
-    else
-        local port=878
-        warp_uri="warp://[$best_ip]:$port/?ifp=5-10@void1x0"
-    fi
-    
-    echo -e "${green}Warp Hiddify URI generated:${reset}"
-    echo -e "${blue}$warp_uri${reset}"
+# ASCII Art Title
+display_title() {
+    clear
+    echo -e "${blue}"
+    echo "  █████╗  ██████╗ ██████╗███████╗███████╗███████╗"
+    echo " ██╔══██╗██╔════╝██╔════╝██╔════╝██╔════╝██╔════╝"
+    echo " ███████║██║     ██║     █████╗  ███████╗███████╗"
+    echo " ██╔══██║██║     ██║     ██╔══╝  ╚════██║╚════██║"
+    echo " ██║  ██║╚██████╗╚██████╗███████╗███████║███████║"
+    echo " ╚═╝  ╚═╝ ╚═════╝ ╚═════╝╚══════╝╚══════╝╚══════╝"
+    echo -e "${magenta}          Internet With WARP${reset}"
+    echo -e "${cyan}          Ultimate WARP Tools v$VERSION${reset}"
     echo ""
-    
-    # Save to file
-    echo "$warp_uri" > "warp_hiddify.txt"
-    echo -e "${green}URI saved to warp_hiddify.txt${reset}"
 }
 
 # Main menu
-clear
-echo -e "${magenta}Warp IP Scanner & WireGuard Config Generator v$VERSION${reset}"
-check_update
+display_title
 echo -e "${blue}Select an option:${reset}"
 echo -e "${yellow}[1] Scan IPv4${reset}"
 echo -e "${yellow}[2] Scan IPv6${reset}"
 echo -e "${yellow}[3] Generate WireGuard Config${reset}"
-echo -e "${yellow}[4] WHA (Warp Hiddify App)${reset}"
+echo -e "${yellow}[4] Generate WHA (Warp Hiddify App) Links${reset}"
 echo -e "${yellow}[0] Exit${reset}"
 echo -ne "${cyan}Your choice: ${reset}"
 read -r choice
@@ -311,23 +304,7 @@ case "$choice" in
         generate_wg_config
         ;;
     4)
-        echo -e "${cyan}Choose IP version for Warp Hiddify App:${reset}"
-        echo -e "${yellow}[1] IPv4${reset}"
-        echo -e "${yellow}[2] IPv6${reset}"
-        echo -ne "${cyan}Your choice: ${reset}"
-        read -r wha_choice
-        case "$wha_choice" in
-            1)
-                warp_hiddify "4"
-                ;;
-            2)
-                warp_hiddify "6"
-                ;;
-            *)
-                echo -e "${red}Invalid choice. Using IPv4.${reset}"
-                warp_hiddify "4"
-                ;;
-        esac
+        generate_wha_links
         ;;
     0)
         echo -e "${green}Exiting...${reset}"
