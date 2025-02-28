@@ -4,17 +4,32 @@
 # Improved version with WHA support
 
 # Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-WHITE='\033[1;37m'
-NC='\033[0m'
+RED='\033[1;31m'      # Brighter red
+GREEN='\033[1;32m'    # Brighter green
+YELLOW='\033[1;33m'   # Brighter yellow
+BLUE='\033[1;34m'     # Brighter blue
+PURPLE='\033[1;35m'   # Brighter purple
+CYAN='\033[1;36m'     # Brighter cyan
+WHITE='\033[1;37m'    # Bright white
+NC='\033[0m'          # No Color
 
 # Version
 VERSION="1.0.0"
+
+# Loading animation
+show_loading() {
+    local pid=$1
+    local delay=0.1
+    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        local temp=${spinstr#?}
+        printf " %c  Scanning endpoints..." "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        echo -en "\r"
+        sleep $delay
+    done
+    echo -en "\r"
+}
 
 # ASCII Art Header
 print_header() {
@@ -23,7 +38,7 @@ print_header() {
     echo -e "${BLUE}║${PURPLE}           WARP SCANNER ENHANCED          ${BLUE}║${NC}"
     echo -e "${BLUE}║${CYAN}               Version ${VERSION}              ${BLUE}║${NC}"
     echo -e "${BLUE}╚══════════════════════════════════════════╝${NC}"
-    echo -e "${PURPLE}     By: github.com/Ptechgithub${NC}\n"
+    echo -e "${PURPLE}              By: void1x0${NC}\n"
 }
 
 # Check CPU architecture
@@ -53,7 +68,7 @@ setup_warpendpoint() {
     if [[ ! -f "$PREFIX/bin/warpendpoint" ]]; then
         echo -e "${CYAN}Downloading warpendpoint program...${NC}"
         if [[ -n $cpu ]]; then
-            curl -L -o warpendpoint -# --retry 2 "https://raw.githubusercontent.com/Ptechgithub/warp/main/endip/$cpu"
+            curl -L -o warpendpoint -# --retry 2 "https://raw.githubusercontent.com/void1x0/warp/main/endip/$cpu"
             cp warpendpoint $PREFIX/bin
             chmod +x $PREFIX/bin/warpendpoint
         fi
@@ -106,32 +121,31 @@ process_results() {
     echo "${temp[@]}" | sed -e 's/ /\n/g' | sort -u > ip.txt
     ulimit -n 102400
     chmod +x warpendpoint >/dev/null 2>&1
-    
-    if command -v warpendpoint &>/dev/null; then
-        warpendpoint
-    else
-        ./warpendpoint
-    fi
+
+    # Show loading animation while scanning
+    warpendpoint & 
+    show_loading $!
+    wait
 
     clear
-    echo -e "${BLUE}╔══════════════════ SCAN RESULTS ══════════════════╗${NC}"
+    echo -e "${BLUE}╔═════════════ SCAN RESULTS ═════════════╗${NC}"
     cat result.csv | awk -F, '$3!="timeout ms" {print} ' | sort -t, -nk2 -nk3 | uniq | head -11 | \
-        awk -F, '{printf "║ %-20s Loss: %-8s Delay: %-8s ║\n", $1, $2, $3}'
-    echo -e "${BLUE}╚═══════════════════════════════════════════════════╝${NC}\n"
+        awk -F, '{printf "║ %-35s Delay: %-8s ║\n", $1, $3}'
+    echo -e "${BLUE}╚══════════════════════════════════════════╝${NC}\n"
 
     best_ip=$(cat result.csv | awk -F, 'NR==2 {print $1}')
     delay=$(cat result.csv | grep -oE "[0-9]+ ms|timeout" | head -n 1)
 
     # Generate WHA URL
     wha_url="warp://${best_ip}/?ifp=5-10@void1x0"
-    
+
     echo -e "${GREEN}Best Endpoint Found:${NC}"
     echo -e "${CYAN}$best_ip${NC}"
     echo -e "${YELLOW}Delay: $delay${NC}\n"
-    
-    echo -e "${GREEN}WHA URL:${NC}"
+
+    echo -e "${GREEN}Warp Hiddify App (WHA) URL:${NC}"
     echo -e "${CYAN}$wha_url${NC}\n"
-    
+
     # Cleanup
     rm -f warpendpoint ip.txt 2>/dev/null
 }
@@ -151,11 +165,11 @@ main() {
     print_header
     check_cpu
     setup_warpendpoint
-    
+
     while true; do
         show_menu
         read -r choice
-        
+
         case "$choice" in
             1)
                 echo -e "\n${CYAN}Starting IPv4 endpoint scan...${NC}"
